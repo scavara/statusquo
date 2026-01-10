@@ -65,14 +65,9 @@ def set_status():
 
 @app.command("/quo")
 def manual_trigger(ack, body):
-    ack()
+    """Manually forces a status update."""
+    ack("🔄 I've forced a status update from the cloud!")
     set_status()
-    
-    app.client.chat_postEphemeral(
-        channel=body["channel_id"],
-        user=body["user_id"],
-        text="🔄 I've forced a status update from the cloud!"
-    )
 
 @app.command("/add-quote")
 def request_new_quote(ack, body, client):
