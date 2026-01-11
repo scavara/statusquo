@@ -255,7 +255,8 @@ if __name__ == "__main__":
     scheduler = BackgroundScheduler()
     scheduler.add_job(global_status_update, 'cron', hour=9, minute=0)
     scheduler.start()
-    
-    print("⚡️ StatusQuo Multi-Tenant is running on port 3000!")
+
+    port = int(os.environ.get("PORT", 3000))
+    print(f"⚡️ StatusQuo Multi-Tenant is running on port {port}!")
     # Turn off reloader to prevent scheduler running twice
-    flask_app.run(host="0.0.0.0", port=3000, debug=False, use_reloader=False)
+    flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
