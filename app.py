@@ -61,30 +61,50 @@ def set_status():
     except Exception as e:
         print(f"❌ Failed to update status: {e}")
 
-# --- SLASH COMMANDS ---
-
+# --- SLASH COMMAND ROUTER ---
 @app.command("/quo")
-def manual_trigger(ack, body):
-    """Manually forces a status update."""
-    ack("🔄 I've forced a status update from the cloud!")
-    set_status()
-
-@app.command("/add-quote")
-def request_new_quote(ack, body, respond):
-    """Submits a new quote for approval."""
+def handle_command(ack, body, respond):
+    """
+    Master command handler.
+    1. `/quo` -> Updates Status
+    2. `/quo add ...` -> Proposes new quote
+    """
     ack()
 
-    user_input = body['text']
+    # Get the text after the command (e.g., "add Hello | Me | :wave:")
+    full_text = body.get('text', '').strip()
+
+    # ROUTE 1: No arguments? Run the Status Update.
+    if not full_text:
+        respond("🔄 I've forced a status update from the cloud!")
+        set_status()
+        return
+
+    # ROUTE 2: Starts with "add"? Run the Submission Logic.
+    if full_text.lower().startswith("add"):
+        # Strip the word "add" from the start to get the raw payload
+        # Example: "add quote | author | :emoji:" -> "quote | author | :emoji:"
+        payload = full_text[3:].strip()
+        handle_add_quote(payload, body, respond)
+        return
+
+    # ROUTE 3: Unknown command
+    respond("⚠️ Unknown subcommand. Try `/quo` to update status, or `/quo add Quote | Author | :emoji:` to add one.")
+
+def handle_add_quote(user_input, body, respond):
+    """Helper function to parse and submit a quote."""
 
     # EXPECTED FORMAT: "Quote Text | Author Name | :emoji:"
     parts = user_input.split("|")
 
     if len(parts) != 3:
-        # We use respond() here to safely reply only to the user
-        respond(text="⚠️ Format required: `Quote Text | Author Name | :emoji:`")
+        respond(text="⚠️ Format required: `/quo add Quote Text | Author Name | :emoji:`")
         return
 
     clean_text = parts[0].strip()
+    # Remove quotes if the user typed them explicitly (optional polish)
+    clean_text = clean_text.strip('"').strip("'")
+
     clean_author = parts[1].strip()
     clean_emoji = parts[2].strip()
 
@@ -97,10 +117,8 @@ def request_new_quote(ack, body, respond):
     })
 
     # Send Approval Message
-    # FIX: We use 'respond' instead of 'client.chat_postMessage'.
-    # This works in private channels/DMs without needing to invite the bot.
     respond(
-        response_type="in_channel", # This makes the card visible to everyone in the channel (so admins can see it)
+        response_type="in_channel",
         text="New Quote Request",
         blocks=[
             {
