@@ -79,7 +79,10 @@ def global_status_update():
     for installation in installations:
         try:
             # --- TOKEN ROTATION LOGIC ---
-            if installation.is_expired():
+            current_ts = int(time.time())
+            if (installation.user_token_expires_at is not None and 
+                installation.user_token_expires_at < (current_ts + 300)):
+                
                 print(f"♻️ Token expired for team {installation.team_name}. Refreshing...")
                 
                 refresh_response = app.client.oauth_v2_access(
