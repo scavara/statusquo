@@ -132,20 +132,16 @@ def request_new_quote(ack, body, respond):
     )
 
 # --- ACTIONS (INTERACTIVITY) ---
-
 @app.action("approve_quote")
-def handle_approval(ack, body, client):
+def handle_approval(ack, body, respond):
     ack()
-    
-    # Optional: Check if user is admin
-    # if body['user']['id'] != ADMIN_USER_ID: return
 
     action_value = body['actions'][0]['value']
     data = json.loads(action_value)
     quote_id = str(uuid.uuid4())
 
     try:
-        # Save to AWS with the new 'author' field
+        # Save to AWS DynamoDB
         table.put_item(
             Item={
                 'quote_id': quote_id,
@@ -154,12 +150,12 @@ def handle_approval(ack, body, client):
                 'emoji': data['emoji']
             }
         )
-        
-        # Update message to remove buttons
-        client.chat_update(
-            channel=body['channel']['id'],
-            ts=body['message']['ts'],
+
+        # FIX: Use respond() with replace_original=True
+        # This works perfectly for messages created by slash commands
+        respond(
             text="Quote Approved!",
+            replace_original=True, # This overwrites the buttons with the success message
             blocks=[{
                 "type": "section",
                 "text": {
@@ -170,22 +166,26 @@ def handle_approval(ack, body, client):
         )
     except Exception as e:
         print(f"Error saving to DynamoDB: {e}")
+        respond(text=f"❌ Error saving quote: {e}")
 
 @app.action("deny_quote")
-def handle_denial(ack, body, client):
+def handle_denial(ack, body, respond):
     ack()
-    client.chat_update(
-        channel=body['channel']['id'],
-        ts=body['message']['ts'],
-        text="Quote Denied",
-        blocks=[{
-            "type": "section",
-            "text": {
-                "type": "mrkdwn", 
-                "text": f"❌ *Denied by <@{body['user']['id']}>*"
-            }
-        }]
-    )
+    try:
+        # FIX: Use respond() here too
+        respond(
+            text="Quote Denied",
+            replace_original=True,
+            blocks=[{
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn", 
+                    "text": f"❌ *Denied by <@{body['user']['id']}>*"
+                }
+            }]
+        )
+    except Exception as e:
+        print(f"Error updating message: {e}")
 
 # --- APP RUNNER ---
 if __name__ == "__main__":
