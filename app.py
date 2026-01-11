@@ -28,6 +28,7 @@ USER_SCOPES = ["users.profile:write"]
 # We keep the quotes table here for command validation and adding new quotes
 dynamodb = boto3.resource('dynamodb')
 quotes_table = dynamodb.Table('FunQuotes')
+deduplicator = QuoteDeduplicator(quotes_table)
 
 # --- STORES ---
 installation_store = DynamoDBInstallationStore(client_id=SLACK_CLIENT_ID)
@@ -117,8 +118,22 @@ def handle_add_command(ack, body, respond):
     clean_author = parts[1].strip()
     clean_emoji = parts[2].strip()
 
+    # --- 1. VALIDATE EMOJI (Existing) ---
     if not (clean_emoji.startswith(":") and clean_emoji.endswith(":")):
         respond(f"⚠️ Invalid emoji format: `{clean_emoji}`.\nMust be a valid Slack shortcode like `:wave:` or `:robot_face:`.")
+        return
+
+    # --- 2. DUPLICATE CHECK (New) ---
+    is_duplicate, existing_item = deduplicator.check_exists(clean_text)
+    if is_duplicate:
+        # Inform user and show the existing one
+        exist_author = existing_item.get('author', 'Unknown')
+        respond(
+            f"🛑 *Duplicate Quote Detected!*\n"
+            f"We already have this quote in the database:\n"
+            f"> \"{clean_text}\" -- {exist_author}\n"
+            f"No need to add it again!"
+        )
         return
 
     # Create proposal payload
