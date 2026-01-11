@@ -70,27 +70,25 @@ def manual_trigger(ack, body):
     set_status()
 
 @app.command("/add-quote")
-def request_new_quote(ack, body, client):
+def request_new_quote(ack, body, respond):
+    """Submits a new quote for approval."""
     ack()
-    
+
     user_input = body['text']
-    
+
     # EXPECTED FORMAT: "Quote Text | Author Name | :emoji:"
     parts = user_input.split("|")
-    
+
     if len(parts) != 3:
-        client.chat_postEphemeral(
-            channel=body['channel_id'],
-            user=body['user_id'],
-            text="⚠️ Format required: `Quote Text | Author Name | :emoji:`"
-        )
+        # We use respond() here to safely reply only to the user
+        respond(text="⚠️ Format required: `Quote Text | Author Name | :emoji:`")
         return
 
     clean_text = parts[0].strip()
     clean_author = parts[1].strip()
     clean_emoji = parts[2].strip()
 
-    # Pack data into JSON for the button
+    # Pack data into JSON for the button value
     proposal_data = json.dumps({
         "text": clean_text,
         "author": clean_author,
@@ -99,8 +97,10 @@ def request_new_quote(ack, body, client):
     })
 
     # Send Approval Message
-    client.chat_postMessage(
-        channel=body['channel_id'],
+    # FIX: We use 'respond' instead of 'client.chat_postMessage'.
+    # This works in private channels/DMs without needing to invite the bot.
+    respond(
+        response_type="in_channel", # This makes the card visible to everyone in the channel (so admins can see it)
         text="New Quote Request",
         blocks=[
             {
