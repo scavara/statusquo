@@ -1,27 +1,24 @@
 import subprocess
 import sys
 import os
-import uuid  # <--- Added this library
+import uuid 
 import csv
 import boto3
 from dotenv import load_dotenv
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError
 
-# --- 1. Auto-install Dependencies ---
+# --- 1. Dependencies ---
 def install_dependencies():
     required_packages = ['boto3', 'python-dotenv']
     try:
-        # Check if packages are installed; if not, install them silently
         subprocess.check_call([sys.executable, "-m", "pip", "install"] + required_packages)
     except subprocess.CalledProcessError:
         print("Failed to install required packages.")
         sys.exit(1)
 
-# Run installation immediately
 install_dependencies()
 
 # --- 2. Main Logic ---
-# Load environment variables
 load_dotenv()
 
 def get_dynamodb_resource():
@@ -48,20 +45,23 @@ def import_csv_to_dynamodb(csv_filepath, table_name):
             
             with table.batch_writer() as batch:
                 for row in reader:
-                    # Generate a random UUID string
                     generated_id = str(uuid.uuid4())
 
+                    # --- THE FIX ---
+                    # simply strip quote marks from the start/end
+                    clean_text = row['text'].strip('"')
+
                     item = {
-                        'quote_id': generated_id, # <--- Auto-generated here
+                        'quote_id': generated_id,
                         'author': row['author'],
                         'emoji': row['emoji'],
-                        'text': row['text']
+                        'text': clean_text
                     }
                     
                     batch.put_item(Item=item)
                     row_count += 1
                     
-        print(f"✅ Success! Imported {row_count} quotes with new UUIDs.")
+        print(f"✅ Success! Imported {row_count} quotes (cleaned of extra quotes).")
 
     except KeyError as e:
         print(f"❌ CSV Error: Missing column {e}. Expecting: author, emoji, text")
@@ -69,5 +69,4 @@ def import_csv_to_dynamodb(csv_filepath, table_name):
         print(f"❌ Error: {str(e)}")
 
 if __name__ == "__main__":
-    # Ensure your csv file matches this name
     import_csv_to_dynamodb('quotes.csv', 'FunQuotes')

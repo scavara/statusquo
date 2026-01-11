@@ -23,3 +23,5 @@ Thumbs.db
 # --- IDEs (Optional but good practice) ---
 .vscode/
 .idea/
+# custom crap
+utils/quotes.csv
