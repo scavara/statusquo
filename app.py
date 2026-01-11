@@ -9,12 +9,13 @@ from slack_bolt.adapter.flask import SlackRequestHandler
 from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk.oauth.state_store import FileOAuthStateStore
 from boto3.dynamodb.conditions import Key
-from lib.status_logic import perform_user_update
 
 # --- LOCAL IMPORTS ---
 # Ensure you have the 'lib' folder with these files created from previous steps
 from lib.installation_store import DynamoDBInstallationStore
 from lib.filter_store import FilterStore
+from lib.status_logic import perform_user_update
+from lib.quote_deduplicator import QuoteDeduplicator
 
 # --- CONFIGURATION ---
 SLACK_CLIENT_ID = os.environ["SLACK_CLIENT_ID"]
