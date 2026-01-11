@@ -9,6 +9,7 @@ from slack_bolt.adapter.flask import SlackRequestHandler
 from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk.oauth.state_store import FileOAuthStateStore
 from boto3.dynamodb.conditions import Key
+from lib.status_logic import perform_user_update
 
 # --- LOCAL IMPORTS ---
 # Ensure you have the 'lib' folder with these files created from previous steps
@@ -54,14 +55,46 @@ handler = SlackRequestHandler(app)
 # 1. COMMAND: /quo-update
 # ==========================================
 @app.command("/quo-update")
-def handle_update_command(ack, respond):
+def handle_update_command(ack, body, respond):
     """
-    Triggers a manual update response.
-    Real updates happen via the daily clock process, but this confirms the app is alive.
+    Triggers an IMMEDIATE manual update for the user.
     """
     ack()
-    respond("🔄 Global updates run automatically every morning at 9:00 AM.\nIf you just changed your filter, it will apply then!")
+    
+    user_id = body['user_id']
+    team_id = body['team_id']
 
+    # 1. Fetch the installation to get the token
+    # Note: This assumes the person running the command IS the installer.
+    # If a different user runs this, we won't have their specific token unless 
+    # they also installed the app.
+    installation = installation_store.find_installation(
+        enterprise_id=body.get("enterprise_id"),
+        team_id=team_id
+    )
+
+    if not installation:
+        respond("❌ I couldn't find an installation record for this team.")
+        return
+
+    if installation.user_id != user_id:
+        respond(f"⚠️ Permission Denied. I only have a token for <@{installation.user_id}> (the installer). only they can update their status.")
+        return
+
+    respond("🔄 Updating your status now...")
+
+    # 2. Perform the update using our shared library
+    success, result_msg = perform_user_update(
+        installation=installation,
+        client=app.client,
+        filter_store=filter_store,
+        quotes_table=quotes_table
+    )
+
+    if success:
+        respond(f"✅ Done! Status updated to:\n> {result_msg}")
+    else:
+        respond(f"❌ Update failed: {result_msg}")
 
 # ==========================================
 # 2. COMMAND: /quo-add
