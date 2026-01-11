@@ -16,7 +16,8 @@ class DynamoDBInstallationStore(InstallationStore):
             item = {
                 'client_id': self.client_id,
                 'enterprise_or_team_id': installation.team_id,
-                'installation_data': json.dumps(installation.to_dict())
+                # FIX: Added default=str here
+                'installation_data': json.dumps(installation.to_dict(), default=str)
             }
             self.table.put_item(Item=item)
         except Exception as e:
@@ -46,8 +47,6 @@ class DynamoDBInstallationStore(InstallationStore):
         """
         installations = []
         try:
-            # Note: Scan is expensive at scale. For production with 1000+ teams, 
-            # consider using a Global Secondary Index (GSI) or parallel scans.
             response = self.table.scan()
             items = response.get('Items', [])
             
