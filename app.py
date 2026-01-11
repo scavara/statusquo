@@ -4,63 +4,43 @@ import random
 import json
 import uuid
 import boto3
+import time
 from flask import Flask, request
 from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
 from slack_bolt.oauth.oauth_settings import OAuthSettings
-from slack_sdk.oauth.installation_store import InstallationStore, Installation
 from slack_sdk.oauth.state_store import FileOAuthStateStore
 from apscheduler.schedulers.background import BackgroundScheduler
+
+# --- LOCAL IMPORTS ---
+from lib.installation_store import DynamoDBInstallationStore
 
 # --- CONFIGURATION ---
 SLACK_CLIENT_ID = os.environ["SLACK_CLIENT_ID"]
 SLACK_CLIENT_SECRET = os.environ["SLACK_CLIENT_SECRET"]
 SLACK_SIGNING_SECRET = os.environ["SLACK_SIGNING_SECRET"]
-# Scopes needed for the bot to work
+
 SCOPES = ["commands", "chat:write"]
-# Scopes needed to update the user's status
 USER_SCOPES = ["users.profile:write"]
 
-# --- AWS DYNAMODB SETUP ---
+# --- AWS DYNAMODB SETUP (Quotes Only) ---
+# We keep this here because it's specific to the app's content, not auth
 dynamodb = boto3.resource('dynamodb')
 quotes_table = dynamodb.Table('FunQuotes')
-install_table = dynamodb.Table('SlackInstallations')
-
-# --- CUSTOM INSTALLATION STORE (MULTI-TENANT) ---
-class DynamoDBInstallationStore(InstallationStore):
-    def save(self, installation: Installation):
-        # Save the token data to DynamoDB
-        # We use a composite key of team_id and user_id to handle specific user tokens
-        item = {
-            'client_id': installation.client_id,
-            'enterprise_or_team_id': installation.team_id,
-            'installation_data': json.dumps(installation.to_dict())
-        }
-        install_table.put_item(Item=item)
-
-    def find_installation(self, enterprise_id, team_id, user_id=None, is_enterprise_install=False):
-        # Retrieve token based on team_id
-        try:
-            response = install_table.get_item(
-                Key={
-                    'client_id': SLACK_CLIENT_ID,
-                    'enterprise_or_team_id': team_id
-                }
-            )
-            if 'Item' in response:
-                data = json.loads(response['Item']['installation_data'])
-                return Installation(**data)
-        except Exception as e:
-            logging.error(f"Find installation error: {e}")
-        return None
 
 # --- APP INITIALIZATION ---
+# Initialize the store once so we can reuse it
+installation_store = DynamoDBInstallationStore(
+    table_name='SlackInstallations',
+    client_id=SLACK_CLIENT_ID
+)
+
 oauth_settings = OAuthSettings(
     client_id=SLACK_CLIENT_ID,
     client_secret=SLACK_CLIENT_SECRET,
     scopes=SCOPES,
     user_scopes=USER_SCOPES,
-    installation_store=DynamoDBInstallationStore(),
+    installation_store=installation_store,
     state_store=FileOAuthStateStore(expiration_seconds=600, base_dir="./data")
 )
 
@@ -93,67 +73,51 @@ def global_status_update():
     if len(full_status) > 100:
         full_status = full_status[:97] + "..."
 
-    try:
-        response = install_table.scan()
-        installations = response.get('Items', [])
+    # Use the helper method from our class instead of raw scan
+    installations = installation_store.get_all_installations()
         
-        for item in installations:
-            try:
-                # 1. Rehydrate the Installation object
-                data = json.loads(item['installation_data'])
-                installation = Installation(**data)
+    for installation in installations:
+        try:
+            # --- TOKEN ROTATION LOGIC ---
+            if installation.is_expired():
+                print(f"♻️ Token expired for team {installation.team_name}. Refreshing...")
                 
-                # --- NEW SECURITY LOGIC START ---
-                # Check if token is expired (or expires in the next 5 minutes)
-                # 'is_expired()' is a built-in method of the Installation class
-                if installation.is_expired():
-                    print(f"♻️ Token expired for team {installation.team_name}. Refreshing...")
-                    
-                    # Perform the Refresh
-                    refresh_response = app.client.oauth_v2_access(
-                        client_id=SLACK_CLIENT_ID,
-                        client_secret=SLACK_CLIENT_SECRET,
-                        grant_type="refresh_token",
-                        refresh_token=installation.user_refresh_token
-                    )
-                    
-                    # Update the Installation Object with new credentials
-                    installation.user_token = refresh_response["access_token"]
-                    installation.user_refresh_token = refresh_response["refresh_token"]
-                    installation.user_token_expires_at = int(time.time()) + refresh_response["expires_in"]
-                    
-                    # IMPORTANT: Save the new credentials back to DynamoDB
-                    # Your existing store.save() method handles the overwrite
-                    oauth_settings.installation_store.save(installation)
-                    print("✅ Token refreshed and saved.")
-                # --- NEW SECURITY LOGIC END ---
+                refresh_response = app.client.oauth_v2_access(
+                    client_id=SLACK_CLIENT_ID,
+                    client_secret=SLACK_CLIENT_SECRET,
+                    grant_type="refresh_token",
+                    refresh_token=installation.user_refresh_token
+                )
+                
+                installation.user_token = refresh_response["access_token"]
+                installation.user_refresh_token = refresh_response["refresh_token"]
+                installation.user_token_expires_at = int(time.time()) + refresh_response["expires_in"]
+                
+                installation_store.save(installation)
+                print("✅ Token refreshed and saved.")
+            # -----------------------------
 
-                # Now proceed safely with the valid token
-                if installation.user_token:
-                    app.client.users_profile_set(
-                        token=installation.user_token,
-                        profile={
-                            "status_text": full_status,
-                            "status_emoji": quote['emoji'],
-                            "status_expiration": 0
-                        }
-                    )
-                    print(f"✅ Updated status for team {installation.team_name}")
-                    
-            except Exception as inner_e:
-                print(f"❌ Failed for one tenant: {inner_e}")
+            if installation.user_token:
+                app.client.users_profile_set(
+                    token=installation.user_token,
+                    profile={
+                        "status_text": full_status,
+                        "status_emoji": quote['emoji'],
+                        "status_expiration": 0
+                    }
+                )
+                print(f"✅ Updated status for team {installation.team_name}")
+        except Exception as inner_e:
+            print(f"❌ Failed for one tenant: {inner_e}")
 
-    except Exception as e:
-        print(f"❌ Error scanning installations: {e}")
 
-# --- COMMANDS & ACTIONS ---
+# --- SLASH COMMAND ROUTER ---
 @app.command("/quo")
 def handle_command(ack, body, respond):
     ack()
     full_text = body.get('text', '').strip()
 
     if not full_text:
-        # Note: We can only force update for THIS user in this context
         respond("🔄 Triggering a global update (this might take a moment)...")
         global_status_update() 
         return
@@ -203,6 +167,7 @@ def handle_add_quote(user_input, body, respond):
         ]
     )
 
+# --- ACTIONS (INTERACTIVITY) ---
 @app.action("approve_quote")
 def handle_approval(ack, body, respond):
     ack()
@@ -251,12 +216,11 @@ def slack_oauth_redirect():
 
 # --- RUNNER ---
 if __name__ == "__main__":
-    # Scheduler runs in the background
     scheduler = BackgroundScheduler()
     scheduler.add_job(global_status_update, 'cron', hour=9, minute=0)
     scheduler.start()
-
+    
     port = int(os.environ.get("PORT", 3000))
     print(f"⚡️ StatusQuo Multi-Tenant is running on port {port}!")
-    # Turn off reloader to prevent scheduler running twice
+    
     flask_app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
