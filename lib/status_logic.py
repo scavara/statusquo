@@ -2,6 +2,7 @@ import time
 import random
 import logging
 from boto3.dynamodb.conditions import Key
+from slack_sdk.errors import SlackApiError  # Import Slack Error handling
 
 # Setup Logger
 logger = logging.getLogger(__name__)
@@ -19,7 +20,6 @@ def get_quote_for_user(user_id, filter_store, quotes_table):
     if author_filter:
         try:
             # 2. Query GSI
-            # We use the 'AuthorIndex' we created in DynamoDB to find specific authors efficiently
             response = quotes_table.query(
                 IndexName='AuthorIndex',
                 KeyConditionExpression=Key('author').eq(author_filter)
@@ -33,7 +33,6 @@ def get_quote_for_user(user_id, filter_store, quotes_table):
             logger.error(f"GSI Query failed: {e}")
 
     # 3. Fallback: Random Scan
-    # (Note: For massive scale, implement a 'Count' metadata strategy instead of Scan)
     try:
         response = quotes_table.scan()
         items = response.get('Items', [])
@@ -48,7 +47,7 @@ def get_quote_for_user(user_id, filter_store, quotes_table):
 def perform_user_update(installation, client, filter_store, quotes_table):
     """
     Performs the actual API call to Slack to update status.
-    Returns: (True, status_text) if successful, (False, error_message) if failed.
+    Handles 'invalid_emoji' errors by retrying with a default.
     """
     try:
         user_id = installation.user_id
@@ -60,34 +59,43 @@ def perform_user_update(installation, client, filter_store, quotes_table):
         author = quote.get('author', 'Anonymous')
         text = f'"{quote["text"]}." --{author}'
         
-        # Safety Check: Slack Status has a strict 100-char limit
         if len(text) > 100: 
-            # Truncate and add ellipsis to fit logic
-            # allowed length = 100 - 3 (for "...")
             text = text[:97] + "..."
 
-        # 3. Sanitize Emoji
-        # Slack API throws 'profile_status_set_failed_not_valid_emoji' if format is wrong
+        # 3. Get Raw Emoji (Basic cleanup only)
         emoji = quote.get('emoji', '').strip()
-        
-        # Fallback 1: If empty
-        if not emoji:
-            emoji = ":speech_balloon:"
-            
-        # Fallback 2: Basic validation (must start/end with colon)
-        # If user entered "smile" instead of ":smile:", we revert to default to prevent crash
-        if not (emoji.startswith(":") and emoji.endswith(":")):
-            emoji = ":speech_balloon:"
+        if not emoji: emoji = ":speech_balloon:"
 
-        # 4. Call Slack API
-        client.users_profile_set(
-            token=installation.user_token,
-            profile={
-                "status_text": text,
-                "status_emoji": emoji,
-                "status_expiration": 0 # 0 means "don't clear automatically"
-            }
-        )
+        # 4. Attempt Update (FAIL-SAFE LOGIC)
+        try:
+            client.users_profile_set(
+                token=installation.user_token,
+                profile={
+                    "status_text": text,
+                    "status_emoji": emoji,
+                    "status_expiration": 0
+                }
+            )
+        except SlackApiError as slack_err:
+            # Check if the specific error is about the emoji
+            error_code = slack_err.response.get("error")
+            
+            if error_code == 'profile_status_set_failed_not_valid_emoji':
+                logger.warning(f"⚠️ Invalid emoji '{emoji}' for user {user_id}. Retrying with default.")
+                
+                # RETRY with safe default
+                client.users_profile_set(
+                    token=installation.user_token,
+                    profile={
+                        "status_text": text,
+                        "status_emoji": ":speech_balloon:", # Guaranteed to work
+                        "status_expiration": 0
+                    }
+                )
+            else:
+                # If it's a different error (like auth failed), raise it so the outer loop catches it
+                raise slack_err
+
         return True, text
 
     except Exception as e:
