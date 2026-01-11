@@ -9,7 +9,7 @@ from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
 from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk.oauth.installation_store import InstallationStore, Installation
-from slack_sdk.oauth.state_store import FileStateStore
+from slack_sdk.oauth.state_store import FileOAuthStateStore
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # --- CONFIGURATION ---
@@ -61,7 +61,7 @@ oauth_settings = OAuthSettings(
     scopes=SCOPES,
     user_scopes=USER_SCOPES,
     installation_store=DynamoDBInstallationStore(),
-    state_store=FileStateStore(base_dir="./data") # Simple local state store for the handshake
+    state_store=FileOAuthStateStore(expiration_seconds=600, base_dir="./data")
 )
 
 app = App(
