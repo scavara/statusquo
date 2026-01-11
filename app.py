@@ -117,6 +117,10 @@ def handle_add_command(ack, body, respond):
     clean_author = parts[1].strip()
     clean_emoji = parts[2].strip()
 
+    if not (clean_emoji.startswith(":") and clean_emoji.endswith(":")):
+        respond(f"⚠️ Invalid emoji format: `{clean_emoji}`.\nMust be a valid Slack shortcode like `:wave:` or `:robot_face:`.")
+        return
+
     # Create proposal payload
     proposal_data = json.dumps({
         "text": clean_text,
