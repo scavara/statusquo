@@ -125,7 +125,22 @@ def handle_add_command(ack, body, respond):
         )
         return
 
-    # --- 2. DUPLICATE CHECK (New) ---
+    # --- 2. VALIDATE LENGTH ---
+    # The format used in status_logic is: "{text}." --{author}
+    # We simulate that format here to check the length.
+    # formatting chars: " (1) + ." -- (4) = 5 characters of overhead
+    predicted_status = f'"{clean_text}." --{clean_author}'
+
+    if len(predicted_status) > 100:
+        overage = len(predicted_status) - 100
+        respond(
+            f"⚠️ *Quote is too long!* (Slack limit is 100 chars)\n"
+            f"Your quote + author takes up *{len(predicted_status)}* chars.\n"
+            f"Please shorten the text or author by {overage} characters."
+        )
+        return
+
+    # --- 3. DUPLICATE CHECK ---
     is_duplicate, existing_item = deduplicator.check_exists(clean_text)
     if is_duplicate:
         # Inform user and show the existing one
