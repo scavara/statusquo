@@ -306,6 +306,11 @@ def handle_denial(ack, body, respond):
 # ==========================================
 # 5. FLASK ROUTES
 # ==========================================
+@flask_app.route("/", methods=["GET"])
+def index():
+    return "⚡️ StatusQuo Bot is running! <br><br><a href='/slack/install'>Click here to Add to Slack</a>"
+
+
 @flask_app.route("/slack/events", methods=["POST"])
 def slack_events():
     return handler.handle(request)
