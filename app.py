@@ -228,7 +228,7 @@ def handle_filter_command(ack, body, respond):
         # Use SCAN with CONTAINS instead of QUERY
         # We limit to 1 item because we just need to know if ANY exist
         response = quotes_table.scan(
-            FilterExpression=Attr('author').contains(author_partial)
+            FilterExpression=Attr("author").contains(author_partial)
         )
 
         if response["Count"] == 0:
