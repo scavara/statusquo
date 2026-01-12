@@ -3,6 +3,7 @@ from boto3.dynamodb.conditions import Attr
 
 logger = logging.getLogger(__name__)
 
+
 class QuoteDeduplicator:
     def __init__(self, table):
         self.table = table
@@ -15,14 +16,12 @@ class QuoteDeduplicator:
         try:
             # MVP: Scan table for exact text match.
             # (DynamoDB 'Scan' is O(N), but acceptable for <10k items)
-            response = self.table.scan(
-                FilterExpression=Attr('text').eq(text)
-            )
-            
-            items = response.get('Items', [])
+            response = self.table.scan(FilterExpression=Attr("text").eq(text))
+
+            items = response.get("Items", [])
             if len(items) > 0:
                 return True, items[0]
-            
+
             return False, None
 
         except Exception as e:
