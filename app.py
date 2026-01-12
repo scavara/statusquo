@@ -8,7 +8,7 @@ from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
 from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk.oauth.state_store import FileOAuthStateStore
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Key, Attr
 
 # --- LOCAL IMPORTS ---
 # Ensure you have the 'lib' folder with these files created from previous steps
@@ -189,7 +189,7 @@ def handle_add_command(ack, body, respond):
 def handle_filter_command(ack, body, respond):
     """
     Handles:
-    /quo-filter Mark Twain
+    /quo-filter Mark (matches Mark Twain, Mark Hamill, etc.)
     /quo-filter list
     /quo-filter flush
     """
@@ -203,7 +203,7 @@ def handle_filter_command(ack, body, respond):
         )
         return
 
-    # --- SUBCOMMAND: FLUSH ---
+    # --- SUBCOMMANDS: FLUSH & LIST (Keep exactly as they were) ---
     if user_input.lower() == "flush":
         if filter_store.clear_filter(user_id):
             respond("🗑️ Filter cleared! You will now receive random quotes.")
@@ -211,7 +211,6 @@ def handle_filter_command(ack, body, respond):
             respond("❌ Error clearing filter.")
         return
 
-    # --- SUBCOMMAND: LIST ---
     if user_input.lower() == "list":
         current = filter_store.get_filter(user_id)
         msg = (
@@ -222,25 +221,24 @@ def handle_filter_command(ack, body, respond):
         respond(msg)
         return
 
-    # --- SUBCOMMAND: SET FILTER ---
-    # The input IS the author name. Clean up quotes if user typed them.
-    author_name = user_input.replace('"', "").replace("'", "")
+    # --- SUBCOMMAND: SET FILTER (Updated for Partial Match) ---
+    author_partial = user_input.replace('"', "").replace("'", "")
 
-    # Validation: Check if author exists using GSI
     try:
-        response = quotes_table.query(
-            IndexName="AuthorIndex",
-            KeyConditionExpression=Key("author").eq(author_name),
+        # Use SCAN with CONTAINS instead of QUERY
+        # We limit to 1 item because we just need to know if ANY exist
+        response = quotes_table.scan(
+            FilterExpression=Attr("author").contains(author_partial), Limit=1
         )
 
         if response["Count"] == 0:
             respond(
-                f"⚠️ I couldn't find any quotes by *{author_name}* yet. Filter NOT set.\nTry adding one first: `/quo-add ...`"
+                f"⚠️ I couldn't find any quotes matching *'{author_partial}'*.\nTry adding one first: `/quo-add ...`"
             )
         else:
-            if filter_store.set_filter(user_id, author_name):
+            if filter_store.set_filter(user_id, author_partial):
                 respond(
-                    f"✅ Filter set! Next update will only show quotes from: *{author_name}*"
+                    f"✅ Filter set! Matches quotes containing: *'{author_partial}'*"
                 )
             else:
                 respond("❌ Database error setting filter.")

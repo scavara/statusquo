@@ -1,7 +1,7 @@
 import time
 import random
 import logging
-from boto3.dynamodb.conditions import Key
+from boto3.dynamodb.conditions import Key, Attr
 from slack_sdk.errors import SlackApiError  # Import Slack Error handling
 
 # Setup Logger
@@ -11,29 +11,30 @@ logger = logging.getLogger(__name__)
 def get_quote_for_user(user_id, filter_store, quotes_table):
     """
     Finds the perfect quote for a user:
-    1. Checks their filter (UserFilters table).
-    2. Queries the GSI (AuthorIndex) if a filter exists.
-    3. Falls back to a random quote.
+    1. Checks their filter.
+    2. Scans for PARTIAL match (e.g. 'Twain' finds 'Mark Twain').
+    3. Falls back to random.
     """
     # 1. Check Filter
     author_filter = filter_store.get_filter(user_id)
 
     if author_filter:
         try:
-            # 2. Query GSI
-            response = quotes_table.query(
-                IndexName="AuthorIndex",
-                KeyConditionExpression=Key("author").eq(author_filter),
+            # 2. SCAN with CONTAINS (Partial Match)
+            # Note: This is case-sensitive ("futurama" won't match "Futurama").
+            response = quotes_table.scan(
+                FilterExpression=Attr("author").contains(author_filter)
             )
             items = response.get("Items", [])
+
             if items:
                 return random.choice(items)
             else:
                 logger.warning(
-                    f"Filter '{author_filter}' found no quotes. Falling back to random."
+                    f"Filter '{author_filter}' found no matches. Falling back."
                 )
         except Exception as e:
-            logger.error(f"GSI Query failed: {e}")
+            logger.error(f"Filter scan failed: {e}")
 
     # 3. Fallback: Random Scan
     try:
