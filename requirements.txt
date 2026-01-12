@@ -3,3 +3,4 @@ boto3>=1.28.0
 apscheduler>=3.10.0
 slack_sdk
 flask
+python-dotenv
