@@ -1,0 +1,42 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  test-and-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pylint black pytest
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Check Formatting (Black)
+        # Fails if code isn't formatted correctly
+        run: black --check .
+
+      - name: Lint Code (Pylint)
+        # --errors-only ensures build doesn't fail on minor warnings (like missing docstrings)
+        # remove --errors-only if you want strict checking
+        run: pylint **/*.py --errors-only
+
+      - name: Run Tests
+        # Runs pytest if tests exist, otherwise echoes a message so pipeline doesn't fail
+        run: |
+          if [ -d "tests" ] || ls test_*.py 1> /dev/null 2>&1; then
+            pytest
+          else
+            echo "No tests found, skipping..."
+          fi
