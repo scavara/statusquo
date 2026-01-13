@@ -1,107 +1,34 @@
 # StatusQuo 🤖
 
-**StatusQuo** is a serverless Slack bot that automates your profile status with witty quotes. It runs on a daily schedule to keep your status fresh and includes a "Human-in-the-Loop" approval workflow for adding new quotes to the database directly from Slack.
+![Python](https://img.shields.io/badge/Python-3.10%2B-blue) ![Platform](https://img.shields.io/badge/Platform-Slack-4A154B) ![AWS](https://img.shields.io/badge/Database-DynamoDB-orange) ![Built with Gemini](https://img.shields.io/badge/Built%20with-Gemini-8E75B2) ![License](https://img.shields.io/badge/License-MIT-green)
 
-## 🚀 Features
+**StatusQuo** is a serverless Slack bot that automates your digital presence. It runs on a daily schedule to update your Slack status with witty quotes, keeping your profile fresh without manual effort.
 
-* **📅 Auto-Scheduler:** Automatically updates your status (Emoji + Text) every day at 09:00 AM.
-* **☁️ Cloud Native:** Fetches quotes from a serverless **AWS DynamoDB** table.
-* **🛡️ Human-in-the-Loop:** Submit new quotes via Slack command (`/add-quote`). An admin must approve them via interactive buttons before they are saved to the database.
-* **⚡ Socket Mode:** Secure connection without exposing public IP addresses.
-* **👻 Ghost Writer:** Updates your status silently in the background using your personal User Token.
+> 💡 **Built with AI:** This entire project—from system architecture to the Python implementation—was created in collaboration with **Google Gemini**.
+
+Unlike simple cron scripts, StatusQuo features a **"Human-in-the-Loop" workflow**: users can propose new quotes via Slack commands, but they trigger an interactive approval flow for an admin before hitting the production database.
 
 ---
 
-## 🛠️ Tech Stack
-
-* **Language:** Python 3.10+
-* **Framework:** [Slack Bolt](https://slack.dev/bolt-python/) (Socket Mode)
-* **Cloud Data:** AWS DynamoDB (Boto3)
-* **Scheduling:** APScheduler
-* **Deployment:** Heroku (Worker Dyno)
+## 📸 Demo
+![StatusQuo Demo](assets/home-demo.png)
 
 ---
 
-## ⚙️ Prerequisites
+## 🏗️ System Architecture
 
-* Python 3.8 or higher
-* A Slack Workspace with permissions to create apps.
-* An AWS Account (Free Tier is sufficient).
-* **Slack App Tokens:**
-    * `SLACK_BOT_TOKEN` (`xoxb-...`)
-    * `SLACK_APP_TOKEN` (`xapp-...`)
-    * `SLACK_USER_TOKEN` (`xoxp-...`)
+This project uses a hybrid cloud approach, leveraging **Heroku** for compute (Dynos) and **AWS** for serverless storage.
 
----
-
-## 📦 Installation & Local Setup
-
-1.  **Clone the repository**
-    ```bash
-    git clone [https://github.com/scavara/statusquo.git](https://github.com/scavara/statusquo.git)
-    cd statusquo
-    ```
-
-2.  **Set up Virtual Environment**
-    ```bash
-    python -m venv venv
-    source venv/bin/activate  # On Windows: venv\Scripts\activate
-    ```
-
-3.  **Install Dependencies**
-    ```bash
-    pip install -r requirements.txt
-    ```
-
-4.  **Configure Environment Variables**
-    Create a `.env` file (DO NOT commit this to GitHub) and add your keys:
-    ```ini
-    SLACK_BOT_TOKEN=xoxb-your-token
-    SLACK_APP_TOKEN=xapp-your-token
-    SLACK_USER_TOKEN=xoxp-your-token
-    AWS_ACCESS_KEY_ID=your-aws-key
-    AWS_SECRET_ACCESS_KEY=your-aws-secret
-    AWS_DEFAULT_REGION=us-east-1
-    ```
-
-5.  **Run Locally**
-    ```bash
-    python app.py
-    ```
-
----
-
-## ☁️ Deployment (Heroku)
-
-1.  **Create App:** Create a new app on Heroku.
-2.  **Config Vars:** Go to **Settings > Reveal Config Vars** and add all the variables listed in the setup above.
-    * *Tip: Add `TZ` (e.g., `Europe/Berlin`) to set the scheduler timezone.*
-3.  **Deploy:** Connect your GitHub repo and deploy the `main` branch.
-4.  **Scale Worker:** Ensure the worker is running:
-    ```bash
-    heroku ps:scale worker=1
-    ```
-
----
-
-## 🎮 Usage
-
-| Command | Description |
-| :--- | :--- |
-| `/quo` | **Manual Trigger:** Forces the bot to fetch a random quote and update your status immediately. |
-| `/add-quote "Text" \| :emoji:` | **Submission:** Proposes a new quote. <br> *Example:* `/add-quote "Coding hard" | :computer:` |
-
----
-
-## 📄 License
-
-Distributed under the **MIT License**. See `LICENSE` for more information.
-
-> "Permission is hereby granted, free of charge, to any person obtaining a copy of this software..."
-
----
-
-## 👤 Author
-
-**[Your Name]**
-* GitHub: [@scavara](https://github.com/scavara)
+```mermaid
+graph TD
+    User((User)) -->|/add-quote| Slack[Slack Interface]
+    Slack -->|Socket Mode| App[Heroku Worker]
+    App -->|Check Logic| Logic{Approval?}
+    Logic -- No --> Admin[Admin Channel]
+    Admin -- Approve --> App
+    App -->|Save| DB[(AWS DynamoDB)]
+    
+    Scheduler[APScheduler] -->|09:00 AM Trigger| App
+    App -->|Fetch Random Quote| DB
+    App -->|API Call| API[Slack Web API]
+    API -->|Update Status| Profile[User Profile]

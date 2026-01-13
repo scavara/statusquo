@@ -122,13 +122,13 @@ INDEX_HTML = """
 <body>
     <h1>🤖 StatusQuo</h1>
     <p>The witty, automated status updater for Slack.</p>
-    
+
     <a href="/slack/install" class="btn">Add to Slack</a>
-    
+
     <div class="links">
         <a href="/privacy">Privacy Policy</a> | 
         <a href="/support">Support & Terms</a> | 
-        <a href="https://github.com/scavara/statusquo">GitHub (Private)</a>
+        <a href="https://github.com/scavara/statusquo">GitHub</a>
     </div>
 </body>
 </html>
@@ -256,13 +256,11 @@ INDEX_HTML = """
 <body>
     <h1>🤖 StatusQuo</h1>
     <p>The witty, automated status updater for Slack.</p>
-    
     <a href="/slack/install" class="btn">Add to Slack</a>
-    
     <div class="links">
         <a href="/privacy">Privacy Policy</a> | 
         <a href="/support">Support & Terms</a> | 
-        <a href="https://github.com/scavara/statusquo">GitHub (Private)</a>
+        <a href="https://github.com/scavara/statusquo">GitHub</a>
     </div>
 </body>
 </html>
