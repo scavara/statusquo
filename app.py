@@ -8,14 +8,16 @@ from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
 from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_sdk.oauth.state_store import FileOAuthStateStore
+from slack_sdk.errors import SlackApiError
 from boto3.dynamodb.conditions import Key, Attr
 
 # --- LOCAL IMPORTS ---
-# Ensure you have the 'lib' folder with these files created from previous steps
+# Ensure you have the 'lib' folder with these files created
 from lib.installation_store import DynamoDBInstallationStore
 from lib.filter_store import FilterStore
 from lib.status_logic import perform_user_update
 from lib.quote_deduplicator import QuoteDeduplicator
+from lib.legal_pages import PRIVACY_HTML, SUPPORT_HTML, INDEX_HTML
 
 # --- CONFIGURATION ---
 SLACK_CLIENT_ID = os.environ["SLACK_CLIENT_ID"]
@@ -26,7 +28,6 @@ SCOPES = ["commands", "chat:write"]
 USER_SCOPES = ["users.profile:write"]
 
 # --- AWS DYNAMODB SETUP ---
-# We keep the quotes table here for command validation and adding new quotes
 dynamodb = boto3.resource("dynamodb")
 quotes_table = dynamodb.Table("FunQuotes")
 deduplicator = QuoteDeduplicator(quotes_table)
@@ -51,22 +52,274 @@ handler = SlackRequestHandler(app)
 
 
 # ==========================================
-# 1. COMMAND: /quo-update
+# 1. APP HOME TAB (VISUAL INTERFACE)
 # ==========================================
+
+
+def get_home_view(user_id):
+    """Generates the Block Kit view for the App Home."""
+    # Fetch current filter state
+    current_filter = filter_store.get_filter(user_id)
+    filter_status = (
+        f"Running locally on *'{current_filter}'*"
+        if current_filter
+        else "Running on *All Quotes* (Random)"
+    )
+
+    return {
+        "type": "home",
+        "blocks": [
+            {
+                "type": "header",
+                "text": {
+                    "type": "plain_text",
+                    "text": "🤖 Welcome to StatusQuo",
+                    "emoji": True,
+                },
+            },
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"👋 *Hello, <@{user_id}>!* \n\nI manage your Slack status so you don't have to. I update it automatically every morning at 9:00 AM.",
+                },
+            },
+            {"type": "divider"},
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f"⚙️ *Current Settings:*\n{filter_status}",
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🔄 Force Update Now",
+                            "emoji": True,
+                        },
+                        "style": "primary",
+                        "action_id": "home_refresh_status",
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "➕ Add New Quote",
+                            "emoji": True,
+                        },
+                        "action_id": "home_open_add_modal",
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
+                            "text": "🗑️ Clear Filter",
+                            "emoji": True,
+                        },
+                        "style": "danger",
+                        "action_id": "home_clear_filter",
+                    },
+                ],
+            },
+            {"type": "divider"},
+            {
+                "type": "context",
+                "elements": [
+                    {
+                        "type": "mrkdwn",
+                        "text": "Need help? Check the <https://github.com/scavara/statusquo|Documentation> or contact support.",
+                    }
+                ],
+            },
+        ],
+    }
+
+
+@app.event("app_home_opened")
+def update_home_tab(client, event, logger):
+    try:
+        client.views_publish(user_id=event["user"], view=get_home_view(event["user"]))
+    except Exception as e:
+        logger.error(f"Error publishing home tab: {e}")
+
+
+# ==========================================
+# 2. HOME TAB ACTIONS & MODALS
+# ==========================================
+
+
+@app.action("home_refresh_status")
+def action_refresh_status(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+    team_id = body["team"]["id"]
+
+    installation = installation_store.find_installation(
+        enterprise_id=body.get("enterprise_id"), team_id=team_id
+    )
+
+    if not installation or installation.user_id != user_id:
+        try:
+            client.chat_postEphemeral(
+                channel=user_id,
+                user=user_id,
+                text="⚠️ I don't have permission to update your status. Please reinstall the app.",
+            )
+        except SlackApiError:
+            pass
+        return
+
+    success, result_msg = perform_user_update(
+        installation=installation,
+        client=client,
+        filter_store=filter_store,
+        quotes_table=quotes_table,
+    )
+
+    msg = (
+        f"✅ Status updated: {result_msg}"
+        if success
+        else f"❌ Update failed: {result_msg}"
+    )
+
+    # Notify user in App Home messages tab
+    client.chat_postMessage(channel=user_id, text=msg)
+
+
+@app.action("home_clear_filter")
+def action_clear_filter(ack, body, client):
+    ack()
+    user_id = body["user"]["id"]
+    filter_store.clear_filter(user_id)
+
+    # Refresh the Home Tab to show the new state
+    client.views_publish(user_id=user_id, view=get_home_view(user_id))
+
+
+@app.action("home_open_add_modal")
+def action_open_modal(ack, body, client):
+    ack()
+    client.views_open(
+        trigger_id=body["trigger_id"],
+        view={
+            "type": "modal",
+            "callback_id": "modal_submit_quote",
+            "title": {"type": "plain_text", "text": "Add a Quote"},
+            "submit": {"type": "plain_text", "text": "Submit"},
+            "close": {"type": "plain_text", "text": "Cancel"},
+            "blocks": [
+                {
+                    "type": "input",
+                    "block_id": "input_text",
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "val",
+                        "multiline": True,
+                        "max_length": 80,
+                    },
+                    "label": {"type": "plain_text", "text": "Quote Text"},
+                },
+                {
+                    "type": "input",
+                    "block_id": "input_author",
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "val",
+                        "max_length": 20,
+                    },
+                    "label": {"type": "plain_text", "text": "Author"},
+                },
+                {
+                    "type": "input",
+                    "block_id": "input_emoji",
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "val",
+                        "placeholder": {"type": "plain_text", "text": ":wave:"},
+                    },
+                    "label": {"type": "plain_text", "text": "Emoji"},
+                },
+            ],
+        },
+    )
+
+
+@app.view("modal_submit_quote")
+def handle_modal_submission(ack, body, client, view):
+    ack()
+
+    # 1. Extract Data
+    values = view["state"]["values"]
+    text = values["input_text"]["val"]["value"]
+    author = values["input_author"]["val"]["value"]
+    emoji = values["input_emoji"]["val"]["value"]
+    user_id = body["user"]["id"]
+
+    # 2. Basic Validation
+    if not (emoji.startswith(":") and emoji.endswith(":")):
+        ack(
+            response_action="errors",
+            errors={"input_emoji": "Must start and end with colons. e.g. :rocket:"},
+        )
+        return
+
+    # 3. Create Proposal
+    proposal_data = json.dumps(
+        {"text": text, "author": author, "emoji": emoji, "proposer": user_id}
+    )
+
+    # 4. Send approval to user (Self-Approval for this demo)
+    client.chat_postMessage(
+        channel=user_id,
+        text="New Quote Request",
+        blocks=[
+            {
+                "type": "section",
+                "text": {
+                    "type": "mrkdwn",
+                    "text": f'*New Quote Request:*\n> {emoji} "{text}"\n> -- _{author}_\n_Requested by <@{user_id}>_',
+                },
+            },
+            {
+                "type": "actions",
+                "elements": [
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Approve"},
+                        "style": "primary",
+                        "action_id": "approve_quote",
+                        "value": proposal_data,
+                    },
+                    {
+                        "type": "button",
+                        "text": {"type": "plain_text", "text": "Deny"},
+                        "style": "danger",
+                        "action_id": "deny_quote",
+                    },
+                ],
+            },
+        ],
+    )
+
+
+# ==========================================
+# 3. SLASH COMMANDS (Legacy / Power User)
+# ==========================================
+
+
 @app.command("/quo-update")
 def handle_update_command(ack, body, respond):
-    """
-    Triggers an IMMEDIATE manual update for the user.
-    """
+    """Triggers an IMMEDIATE manual update for the user."""
     ack()
 
     user_id = body["user_id"]
     team_id = body["team_id"]
 
-    # 1. Fetch the installation to get the token
-    # Note: This assumes the person running the command IS the installer.
-    # If a different user runs this, we won't have their specific token unless
-    # they also installed the app.
     installation = installation_store.find_installation(
         enterprise_id=body.get("enterprise_id"), team_id=team_id
     )
@@ -77,13 +330,12 @@ def handle_update_command(ack, body, respond):
 
     if installation.user_id != user_id:
         respond(
-            f"⚠️ Permission Denied. I only have a token for <@{installation.user_id}> (the installer). only they can update their status."
+            f"⚠️ Permission Denied. I only have a token for <@{installation.user_id}>."
         )
         return
 
     respond("🔄 Updating your status now...")
 
-    # 2. Perform the update using our shared library
     success, result_msg = perform_user_update(
         installation=installation,
         client=app.client,
@@ -97,18 +349,12 @@ def handle_update_command(ack, body, respond):
         respond(f"❌ Update failed: {result_msg}")
 
 
-# ==========================================
-# 2. COMMAND: /quo-add
-# ==========================================
 @app.command("/quo-add")
 def handle_add_command(ack, body, respond):
-    """
-    Handles: /quo-add "Quote" | Author | :emoji:
-    """
+    """Handles: /quo-add "Quote" | Author | :emoji:"""
     ack()
     user_input = body.get("text", "").strip()
 
-    # Validation
     parts = user_input.split("|")
     if len(parts) != 3:
         respond(text="⚠️ Format required: `/quo-add Quote Text | Author Name | :emoji:`")
@@ -118,42 +364,22 @@ def handle_add_command(ack, body, respond):
     clean_author = parts[1].strip()
     clean_emoji = parts[2].strip()
 
-    # --- 1. VALIDATE EMOJI (Existing) ---
     if not (clean_emoji.startswith(":") and clean_emoji.endswith(":")):
-        respond(
-            f"⚠️ Invalid emoji format: `{clean_emoji}`.\nMust be a valid Slack shortcode like `:wave:` or `:robot_face:`."
-        )
+        respond(f"⚠️ Invalid emoji format: `{clean_emoji}`.")
         return
 
-    # --- 2. VALIDATE LENGTH ---
-    # The format used in status_logic is: "{text}." --{author}
-    # We simulate that format here to check the length.
-    # formatting chars: " (1) + ." -- (4) = 5 characters of overhead
     predicted_status = f'"{clean_text}." --{clean_author}'
-
     if len(predicted_status) > 100:
         overage = len(predicted_status) - 100
-        respond(
-            f"⚠️ *Quote is too long!* (Slack limit is 100 chars)\n"
-            f"Your quote + author takes up *{len(predicted_status)}* chars.\n"
-            f"Please shorten the text or author by {overage} characters."
-        )
+        respond(f"⚠️ *Quote is too long!* Please shorten by {overage} characters.")
         return
 
-    # --- 3. DUPLICATE CHECK ---
     is_duplicate, existing_item = deduplicator.check_exists(clean_text)
     if is_duplicate:
-        # Inform user and show the existing one
         exist_author = existing_item.get("author", "Unknown")
-        respond(
-            f"🛑 *Duplicate Quote Detected!*\n"
-            f"We already have this quote in the database:\n"
-            f'> "{clean_text}" -- {exist_author}\n'
-            f"No need to add it again!"
-        )
+        respond(f'🛑 *Duplicate Quote Detected!*\n> "{clean_text}" -- {exist_author}')
         return
 
-    # Create proposal payload
     proposal_data = json.dumps(
         {
             "text": clean_text,
@@ -163,7 +389,6 @@ def handle_add_command(ack, body, respond):
         }
     )
 
-    # Send Approval Card
     respond(
         response_type="in_channel",
         text="New Quote Request",
@@ -197,17 +422,9 @@ def handle_add_command(ack, body, respond):
     )
 
 
-# ==========================================
-# 3. COMMAND: /quo-filter
-# ==========================================
 @app.command("/quo-filter")
 def handle_filter_command(ack, body, respond):
-    """
-    Handles:
-    /quo-filter Mark (matches Mark Twain, Mark Hamill, etc.)
-    /quo-filter list
-    /quo-filter flush
-    """
+    """Handles: /quo-filter Mark (matches Mark Twain, etc.), list, or flush"""
     ack()
     user_input = body.get("text", "").strip()
     user_id = body["user_id"]
@@ -218,7 +435,6 @@ def handle_filter_command(ack, body, respond):
         )
         return
 
-    # --- SUBCOMMANDS: FLUSH & LIST (Keep exactly as they were) ---
     if user_input.lower() == "flush":
         if filter_store.clear_filter(user_id):
             respond("🗑️ Filter cleared! You will now receive random quotes.")
@@ -236,20 +452,15 @@ def handle_filter_command(ack, body, respond):
         respond(msg)
         return
 
-    # --- SUBCOMMAND: SET FILTER (Updated for Partial Match) ---
     author_partial = user_input.replace('"', "").replace("'", "")
 
     try:
-        # Use SCAN with CONTAINS instead of QUERY
-        # We limit to 1 item because we just need to know if ANY exist
         response = quotes_table.scan(
             FilterExpression=Attr("author").contains(author_partial)
         )
 
         if response["Count"] == 0:
-            respond(
-                f"⚠️ I couldn't find any quotes matching *'{author_partial}'*.\nTry adding one first: `/quo-add ...`"
-            )
+            respond(f"⚠️ I couldn't find any quotes matching *'{author_partial}'*.")
         else:
             if filter_store.set_filter(user_id, author_partial):
                 respond(
@@ -263,8 +474,10 @@ def handle_filter_command(ack, body, respond):
 
 
 # ==========================================
-# 4. ACTIONS (INTERACTIVITY)
+# 4. SHARED ACTIONS
 # ==========================================
+
+
 @app.action("approve_quote")
 def handle_approval(ack, body, respond):
     ack()
@@ -317,11 +530,23 @@ def handle_denial(ack, body, respond):
 
 
 # ==========================================
-# 5. FLASK ROUTES
+# 5. FLASK ROUTES & LEGAL PAGES
 # ==========================================
+
+
 @flask_app.route("/", methods=["GET"])
 def index():
-    return "⚡️ StatusQuo Bot is running! <br><br><a href='/slack/install'>Click here to Add to Slack</a>"
+    return INDEX_HTML
+
+
+@flask_app.route("/privacy", methods=["GET"])
+def privacy():
+    return PRIVACY_HTML
+
+
+@flask_app.route("/support", methods=["GET"])
+def support():
+    return SUPPORT_HTML
 
 
 @flask_app.route("/slack/events", methods=["POST"])

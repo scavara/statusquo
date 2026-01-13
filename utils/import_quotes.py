@@ -5,7 +5,7 @@ import uuid
 import csv
 import boto3
 from dotenv import load_dotenv
-from botocore.exceptions import NoCredentialsError, PartialCredentialsError
+from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
 
 
 # --- 1. Dependencies ---
@@ -34,6 +34,40 @@ def get_dynamodb_resource():
         sys.exit(1)
 
 
+# Helper: Fetch all current quotes so we can check for duplicates locally
+def get_existing_quotes(table):
+    print("Scanning table for existing quotes to prevent duplicates...")
+    existing_texts = set()
+    try:
+        # We only need the 'text' field to check for duplicates
+        response = table.scan(
+            ProjectionExpression="#t", ExpressionAttributeNames={"#t": "text"}
+        )
+        data = response.get("Items", [])
+
+        for item in data:
+            if "text" in item:
+                existing_texts.add(item["text"])
+
+        # Handle pagination (if table has more than 1MB of data)
+        while "LastEvaluatedKey" in response:
+            response = table.scan(
+                ProjectionExpression="#t",
+                ExpressionAttributeNames={"#t": "text"},
+                ExclusiveStartKey=response["LastEvaluatedKey"],
+            )
+            data = response.get("Items", [])
+            for item in data:
+                if "text" in item:
+                    existing_texts.add(item["text"])
+
+    except ClientError as e:
+        print(f"Warning: Could not scan table. Duplicates might be created. Error: {e}")
+
+    print(f"Found {len(existing_texts)} existing quotes in database.")
+    return existing_texts
+
+
 def import_csv_to_dynamodb(csv_filepath, table_name):
     if not os.path.exists(csv_filepath):
         print(f"Error: File '{csv_filepath}' not found.")
@@ -42,32 +76,65 @@ def import_csv_to_dynamodb(csv_filepath, table_name):
     dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(table_name)
 
+    # 1. Load existing quotes into a Set for fast lookup
+    existing_quotes = get_existing_quotes(table)
+
     print(f"Reading {csv_filepath} into table '{table_name}'...")
 
     try:
-        row_count = 0
+        imported_count = 0
+        skipped_dup_count = 0
+        skipped_len_count = 0
+
         with open(csv_filepath, mode="r", encoding="utf-8") as csvfile:
             reader = csv.DictReader(csvfile)
 
             with table.batch_writer() as batch:
                 for row in reader:
+                    # Clean the inputs (remove surrounding quotes and whitespace)
+                    text_clean = row["text"].strip('"').strip()
+                    author_clean = row["author"].strip()
+                    emoji_clean = row["emoji"].strip()
+
+                    # --- CONSTRAINT 1: Check Length ---
+                    # "if quote + author + emoji is greater then 100 characters"
+                    total_length = (
+                        len(text_clean) + len(author_clean) + len(emoji_clean)
+                    )
+
+                    if total_length > 100:
+                        print(
+                            f"⚠️  Skipping (Too long: {total_length} chars): {text_clean[:30]}..."
+                        )
+                        skipped_len_count += 1
+                        continue
+
+                    # --- CONSTRAINT 2: Check Duplicates ---
+                    if text_clean in existing_quotes:
+                        print(f"⚠️  Skipping (Duplicate): {text_clean[:30]}...")
+                        skipped_dup_count += 1
+                        continue
+
+                    # If checks pass, prepare item
                     generated_id = str(uuid.uuid4())
-
-                    # --- THE FIX ---
-                    # simply strip quote marks from the start/end
-                    clean_text = row["text"].strip('"')
-
                     item = {
                         "quote_id": generated_id,
-                        "author": row["author"],
-                        "emoji": row["emoji"],
-                        "text": clean_text,
+                        "author": author_clean,
+                        "emoji": emoji_clean,
+                        "text": text_clean,
                     }
 
                     batch.put_item(Item=item)
-                    row_count += 1
 
-        print(f"✅ Success! Imported {row_count} quotes (cleaned of extra quotes).")
+                    # Add to local set so we don't upload the same quote twice in the same CSV run
+                    existing_quotes.add(text_clean)
+                    imported_count += 1
+
+        print("-" * 40)
+        print(f"✅ Import Complete!")
+        print(f"   - Imported: {imported_count}")
+        print(f"   - Skipped (Duplicates): {skipped_dup_count}")
+        print(f"   - Skipped (Too Long): {skipped_len_count}")
 
     except KeyError as e:
         print(f"❌ CSV Error: Missing column {e}. Expecting: author, emoji, text")
