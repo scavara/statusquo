@@ -12,12 +12,12 @@ from slack_sdk.errors import SlackApiError
 from boto3.dynamodb.conditions import Key, Attr
 
 # --- LOCAL IMPORTS ---
-# Ensure you have the 'lib' folder with these files created
 from lib.installation_store import DynamoDBInstallationStore
 from lib.filter_store import FilterStore
 from lib.status_logic import perform_user_update
 from lib.quote_deduplicator import QuoteDeduplicator
 from lib.legal_pages import PRIVACY_HTML, SUPPORT_HTML, INDEX_HTML
+from lib.rate_limiter import RateLimiter
 
 # --- CONFIGURATION ---
 SLACK_CLIENT_ID = os.environ["SLACK_CLIENT_ID"]
@@ -31,6 +31,7 @@ USER_SCOPES = ["users.profile:write"]
 dynamodb = boto3.resource("dynamodb")
 quotes_table = dynamodb.Table("FunQuotes")
 deduplicator = QuoteDeduplicator(quotes_table)
+limiter = RateLimiter(quotes_table)
 
 # --- STORES ---
 installation_store = DynamoDBInstallationStore(client_id=SLACK_CLIENT_ID)
@@ -159,6 +160,15 @@ def action_refresh_status(ack, body, client):
     user_id = body["user"]["id"]
     team_id = body["team"]["id"]
 
+    # --- RATE LIMIT CHECK ---
+    allowed, msg = limiter.check_update_limit(user_id)
+    if not allowed:
+        try:
+            client.chat_postEphemeral(channel=user_id, user=user_id, text=msg)
+        except SlackApiError:
+            pass
+        return
+
     installation = installation_store.find_installation(
         enterprise_id=body.get("enterprise_id"), team_id=team_id
     )
@@ -173,6 +183,9 @@ def action_refresh_status(ack, body, client):
         except SlackApiError:
             pass
         return
+
+    # Log attempt *before* work is done
+    limiter.log_update_attempt(user_id)
 
     success, result_msg = perform_user_update(
         installation=installation,
@@ -204,6 +217,24 @@ def action_clear_filter(ack, body, client):
 @app.action("home_open_add_modal")
 def action_open_modal(ack, body, client):
     ack()
+    user_id = body["user"]["id"]
+
+    # --- RATE LIMIT CHECK ---
+    allowed, msg = limiter.check_add_limit(user_id)
+    if not allowed:
+        client.views_open(
+            trigger_id=body["trigger_id"],
+            view={
+                "type": "modal",
+                "title": {"type": "plain_text", "text": "Limit Reached"},
+                "close": {"type": "plain_text", "text": "Got it"},
+                "blocks": [
+                    {"type": "section", "text": {"type": "mrkdwn", "text": msg}}
+                ],
+            },
+        )
+        return
+
     client.views_open(
         trigger_id=body["trigger_id"],
         view={
@@ -273,7 +304,10 @@ def handle_modal_submission(ack, body, client, view):
         {"text": text, "author": author, "emoji": emoji, "proposer": user_id}
     )
 
-    # 4. Send approval to user (Self-Approval for this demo)
+    # 4. Increment Pending Count
+    limiter.increment_pending(user_id)
+
+    # 5. Send approval to user (Self-Approval)
     client.chat_postMessage(
         channel=user_id,
         text="New Quote Request",
@@ -300,6 +334,7 @@ def handle_modal_submission(ack, body, client, view):
                         "text": {"type": "plain_text", "text": "Deny"},
                         "style": "danger",
                         "action_id": "deny_quote",
+                        "value": proposal_data,  # Required for rate limiting logic
                     },
                 ],
             },
@@ -320,6 +355,12 @@ def handle_update_command(ack, body, respond):
     user_id = body["user_id"]
     team_id = body["team_id"]
 
+    # --- RATE LIMIT CHECK ---
+    allowed, msg = limiter.check_update_limit(user_id)
+    if not allowed:
+        respond(msg)
+        return
+
     installation = installation_store.find_installation(
         enterprise_id=body.get("enterprise_id"), team_id=team_id
     )
@@ -335,6 +376,7 @@ def handle_update_command(ack, body, respond):
         return
 
     respond("🔄 Updating your status now...")
+    limiter.log_update_attempt(user_id)
 
     success, result_msg = perform_user_update(
         installation=installation,
@@ -354,6 +396,13 @@ def handle_add_command(ack, body, respond):
     """Handles: /quo-add "Quote" | Author | :emoji:"""
     ack()
     user_input = body.get("text", "").strip()
+    user_id = body["user_id"]
+
+    # --- RATE LIMIT CHECK ---
+    allowed, msg = limiter.check_add_limit(user_id)
+    if not allowed:
+        respond(msg)
+        return
 
     parts = user_input.split("|")
     if len(parts) != 3:
@@ -385,9 +434,12 @@ def handle_add_command(ack, body, respond):
             "text": clean_text,
             "author": clean_author,
             "emoji": clean_emoji,
-            "proposer": body["user_id"],
+            "proposer": user_id,
         }
     )
+
+    # Increment Pending
+    limiter.increment_pending(user_id)
 
     respond(
         response_type="in_channel",
@@ -397,7 +449,7 @@ def handle_add_command(ack, body, respond):
                 "type": "section",
                 "text": {
                     "type": "mrkdwn",
-                    "text": f"*New Quote Request:*\n> {clean_emoji} \"{clean_text}\"\n> -- _{clean_author}_\n_Requested by <@{body['user_id']}>_",
+                    "text": f'*New Quote Request:*\n> {clean_emoji} "{clean_text}"\n> -- _{clean_author}_\n_Requested by <@{user_id}>_',
                 },
             },
             {
@@ -415,6 +467,7 @@ def handle_add_command(ack, body, respond):
                         "text": {"type": "plain_text", "text": "Deny"},
                         "style": "danger",
                         "action_id": "deny_quote",
+                        "value": proposal_data,  # Required for rate limiting logic
                     },
                 ],
             },
@@ -483,6 +536,11 @@ def handle_approval(ack, body, respond):
     ack()
     action_value = body["actions"][0]["value"]
     data = json.loads(action_value)
+
+    # Decrement pending count / Increment daily count
+    proposer_id = data.get("proposer", body["user"]["id"])
+    limiter.process_approval(proposer_id)
+
     quote_id = str(uuid.uuid4())
 
     try:
@@ -514,6 +572,13 @@ def handle_approval(ack, body, respond):
 @app.action("deny_quote")
 def handle_denial(ack, body, respond):
     ack()
+    action_value = body["actions"][0]["value"]
+    data = json.loads(action_value)
+
+    # Decrement pending count
+    proposer_id = data.get("proposer", body["user"]["id"])
+    limiter.process_denial(proposer_id)
+
     respond(
         text="Quote Denied",
         replace_original=True,

@@ -49,18 +49,45 @@ SUPPORT_HTML = """
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
         h1 { color: #2c3e50; }
-        h2 { color: #34495e; }
-        .button { display: inline-block; background: #27ae60; color: white; padding: 10px 20px; border-radius: 5px; margin-top: 10px; }
+        h2 { color: #34495e; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 30px; }
+        .warning { background-color: #fff3cd; color: #856404; padding: 10px; border-radius: 5px; border: 1px solid #ffeeba; }
+        .button { display: inline-block; background: #27ae60; color: white; padding: 10px 20px; border-radius: 5px; margin-top: 10px; text-decoration: none;}
     </style>
 </head>
 <body>
     <h1>Support Center</h1>
     <p>Having trouble with StatusQuo? We're here to help!</p>
 
-    <h2>🐛 Common Issues</h2>
+    <h2>🚫 Content Guidelines (Strict)</h2>
+    <div class="warning">
+        <p><strong>StatusQuo is a professional tool.</strong> We have a zero-tolerance policy for offensive content.</p>
+    </div>
+    <p>When submitting new quotes, you agree to the following rules:</p>
     <ul>
-        <li><strong>Bot stopped updating?</strong> If you changed your Slack password, your token was revoked. Please reinstall the app.</li>
-        <li><strong>Quotes not saving?</strong> Ensure you have approved them in the messages tab.</li>
+        <li><strong>No Hate Speech:</strong> Racism, sexism, homophobia, or any form of discrimination.</li>
+        <li><strong>No Foul Language:</strong> Keep quotes "Safe for Work" (PG-13).</li>
+        <li><strong>No PII:</strong> Do not include private names, phone numbers, or internal company secrets.</li>
+    </ul>
+    <p><em>Violation of these rules may result in a permanent ban from using the service.</em></p>
+
+    <h2>⚡ Usage Limits</h2>
+    <p>To ensure fair usage for everyone, the following limits apply:</p>
+    <ul>
+        <li><strong>Manual Updates:</strong> Once every 10 minutes.</li>
+        <li><strong>Pending Quotes:</strong> Maximum 3 unapproved quotes at a time.</li>
+        <li><strong>Daily Submissions:</strong> Maximum 10 approved quotes per day.</li>
+    </ul>
+
+    <h2>🐛 Troubleshooting</h2>
+    <ul>
+        <li>
+            <strong>Bot stopped updating?</strong><br>
+            If you changed your Slack password, your token was revoked. Please reinstall the app to reconnect.
+        </li>
+        <li>
+            <strong>New quote not showing up?</strong><br>
+            Adding a quote is a <strong>two-step process</strong>. After you submit the text, you must click the green <strong>"Approve"</strong> button sent to your App Messages to save it to the database.
+        </li>
     </ul>
 
     <h2>✉️ Contact Us</h2>
@@ -97,7 +124,7 @@ INDEX_HTML = """
     
     <div class="links">
         <a href="/privacy">Privacy Policy</a> | 
-        <a href="/support">Support</a> | 
+        <a href="/support">Support & Terms</a> | 
         <a href="https://github.com/scavara/statusquo">GitHub (Private)</a>
     </div>
 </body>
