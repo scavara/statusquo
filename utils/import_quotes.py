@@ -7,54 +7,63 @@ import boto3
 from dotenv import load_dotenv
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
 
+
 # --- 1. Dependencies ---
 def install_dependencies():
-    required_packages = ['boto3', 'python-dotenv']
+    required_packages = ["boto3", "python-dotenv"]
     try:
-        subprocess.check_call([sys.executable, "-m", "pip", "install"] + required_packages)
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install"] + required_packages
+        )
     except subprocess.CalledProcessError:
         print("Failed to install required packages.")
         sys.exit(1)
+
 
 install_dependencies()
 
 # --- 2. Main Logic ---
 load_dotenv()
 
+
 def get_dynamodb_resource():
     try:
-        return boto3.resource('dynamodb')
+        return boto3.resource("dynamodb")
     except (NoCredentialsError, PartialCredentialsError):
         print("Error: AWS credentials not found. Check your .env file.")
         sys.exit(1)
+
 
 def get_existing_quotes(table):
     print("Scanning table for existing quotes to prevent duplicates...")
     existing_texts = set()
     try:
-        response = table.scan(ProjectionExpression="#t", ExpressionAttributeNames={"#t": "text"})
-        data = response.get('Items', [])
-        
-        for item in data:
-            if 'text' in item:
-                existing_texts.add(item['text'])
+        response = table.scan(
+            ProjectionExpression="#t", ExpressionAttributeNames={"#t": "text"}
+        )
+        data = response.get("Items", [])
 
-        while 'LastEvaluatedKey' in response:
+        for item in data:
+            if "text" in item:
+                existing_texts.add(item["text"])
+
+        while "LastEvaluatedKey" in response:
             response = table.scan(
-                ProjectionExpression="#t", 
+                ProjectionExpression="#t",
                 ExpressionAttributeNames={"#t": "text"},
-                ExclusiveStartKey=response['LastEvaluatedKey']
+                ExclusiveStartKey=response["LastEvaluatedKey"],
             )
-            data = response.get('Items', [])
+            data = response.get("Items", [])
             for item in data:
-                if 'text' in item:
-                    existing_texts.add(item['text'])
-                    
+                if "text" in item:
+                    existing_texts.add(item["text"])
+
     except ClientError as e:
         print(f"Warning: Could not scan table. Duplicates might be created. Error: {e}")
-    
+
     print(f"Found {len(existing_texts)} existing quotes in database.")
     return existing_texts
+
 
 def import_csv_to_dynamodb(csv_filepath, table_name):
     if not os.path.exists(csv_filepath):
@@ -63,7 +72,7 @@ def import_csv_to_dynamodb(csv_filepath, table_name):
 
     dynamodb = get_dynamodb_resource()
     table = dynamodb.Table(table_name)
-    
+
     existing_quotes = get_existing_quotes(table)
 
     print(f"Reading {csv_filepath} into table '{table_name}'...")
@@ -73,22 +82,26 @@ def import_csv_to_dynamodb(csv_filepath, table_name):
         skipped_dup_count = 0
         skipped_len_count = 0
 
-        with open(csv_filepath, mode='r', encoding='utf-8') as csvfile:
+        with open(csv_filepath, mode="r", encoding="utf-8") as csvfile:
             reader = csv.DictReader(csvfile)
-            
+
             with table.batch_writer() as batch:
                 for row in reader:
                     # --- THE FIX ---
                     # Apply .strip('"') to ALL fields to remove extra CSV quotes
                     # .strip() (no args) cleans up surrounding whitespace
-                    text_clean = row['text'].strip('"').strip()
-                    author_clean = row['author'].strip('"').strip()
-                    emoji_clean = row['emoji'].strip('"').strip()
+                    text_clean = row["text"].strip('"').strip()
+                    author_clean = row["author"].strip('"').strip()
+                    emoji_clean = row["emoji"].strip('"').strip()
 
                     # Check Length
-                    total_length = len(text_clean) + len(author_clean) + len(emoji_clean)
+                    total_length = (
+                        len(text_clean) + len(author_clean) + len(emoji_clean)
+                    )
                     if total_length > 100:
-                        print(f"⚠️  Skipping (Too long: {total_length} chars): {text_clean[:30]}...")
+                        print(
+                            f"⚠️  Skipping (Too long: {total_length} chars): {text_clean[:30]}..."
+                        )
                         skipped_len_count += 1
                         continue
 
@@ -100,16 +113,16 @@ def import_csv_to_dynamodb(csv_filepath, table_name):
 
                     generated_id = str(uuid.uuid4())
                     item = {
-                        'quote_id': generated_id,
-                        'author': author_clean,
-                        'emoji': emoji_clean,
-                        'text': text_clean
+                        "quote_id": generated_id,
+                        "author": author_clean,
+                        "emoji": emoji_clean,
+                        "text": text_clean,
                     }
-                    
+
                     batch.put_item(Item=item)
                     existing_quotes.add(text_clean)
                     imported_count += 1
-                    
+
         print("-" * 40)
         print(f"✅ Import Complete!")
         print(f"   - Imported: {imported_count}")
@@ -121,5 +134,6 @@ def import_csv_to_dynamodb(csv_filepath, table_name):
     except Exception as e:
         print(f"❌ Error: {str(e)}")
 
+
 if __name__ == "__main__":
-    import_csv_to_dynamodb('quotes.csv', 'FunQuotes')
+    import_csv_to_dynamodb("quotes.csv", "FunQuotes")
