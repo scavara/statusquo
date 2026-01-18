@@ -347,37 +347,51 @@ def handle_modal_submission(ack, body, client, view):
 # ==========================================
 
 
+# ==========================================
+# 1. COMMAND: /quo-update
+# ==========================================
 @app.command("/quo-update")
 def handle_update_command(ack, body, respond):
-    """Triggers an IMMEDIATE manual update for the user."""
+    """
+    Triggers an IMMEDIATE manual update for the user.
+    """
     ack()
 
     user_id = body["user_id"]
     team_id = body["team_id"]
+    enterprise_id = body.get("enterprise_id")
 
-    # --- RATE LIMIT CHECK ---
-    allowed, msg = limiter.check_update_limit(user_id)
-    if not allowed:
-        respond(msg)
-        return
-
+    # 1. Try to find an installation SPECIFICALLY for this user
+    # We pass 'user_id' so the store looks for THIS user's tokens, not just the team bot token.
     installation = installation_store.find_installation(
-        enterprise_id=body.get("enterprise_id"), team_id=team_id
+        enterprise_id=enterprise_id,
+        team_id=team_id,
+        user_id=user_id
     )
 
-    if not installation:
-        respond("❌ I couldn't find an installation record for this team.")
-        return
+    # 2. If we don't have a token for this specific user, ask them to auth
+    if not installation or not installation.user_token:
+        # Construct the install URL so they can click and authorize immediately
+        # We try to grab the current server URL dynamically
+        try:
+            base_url = request.url_root.rstrip("/")
+            # Ensure HTTPS if on Heroku (Heroku forwards http internal requests)
+            if "herokuapp" in base_url and base_url.startswith("http://"):
+                base_url = base_url.replace("http://", "https://")
+            install_url = f"{base_url}/slack/install"
+        except Exception:
+            install_url = "/slack/install" # Fallback
 
-    if installation.user_id != user_id:
         respond(
-            f"⚠️ Permission Denied. I only have a token for <@{installation.user_id}>."
+            f"⚠️ *I don't have permission to update your status yet.*\n"
+            f"Since status updates require access to your personal profile, you need to authorize me first.\n\n"
+            f"👉 <{install_url}|Click here to Authorize StatusQuo>"
         )
         return
 
     respond("🔄 Updating your status now...")
-    limiter.log_update_attempt(user_id)
 
+    # 3. Perform the update using the found user token
     success, result_msg = perform_user_update(
         installation=installation,
         client=app.client,

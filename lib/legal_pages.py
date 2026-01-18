@@ -67,9 +67,9 @@ SUPPORT_HTML = """
     </div>
     <p>When submitting new quotes, you agree to the following rules:</p>
     <ul>
-        <li><strong>No Hate Speech:</strong> Racism, sexism, homophobia, or any form of discrimination.</li>
-        <li><strong>No Foul Language:</strong> Keep quotes "Safe for Work" (PG-13).</li>
-        <li><strong>No PII:</strong> Do not include private names, phone numbers, or internal company secrets.</li>
+        <li><strong>No Hate Speech:</strong> Any share or form.</li>
+        <li><strong>No Foul Language:</strong> Keep quotes "Safe for Work".</li>
+        <li><strong>No PII:</strong> Do not include private names, phone numbers...</li>
     </ul>
     <p><em>Violation of these rules may result in a permanent ban from using the service.</em></p>
 
