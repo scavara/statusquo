@@ -50,52 +50,24 @@ SUPPORT_HTML = """
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
         h1 { color: #2c3e50; }
         h2 { color: #34495e; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 30px; }
-        .warning { background-color: #fff3cd; color: #856404; padding: 10px; border-radius: 5px; border: 1px solid #ffeeba; }
-        .button { display: inline-block; background: #27ae60; color: white; padding: 10px 20px; border-radius: 5px; margin-top: 10px; text-decoration: none;}
+        .code { background: #f4f4f4; padding: 2px 5px; border-radius: 3px; font-family: monospace; }
     </style>
 </head>
 <body>
     <h1>Support Center</h1>
-    <p>Having trouble with StatusQuo? We're here to help!</p>
 
-    <h2>🌍 Language Support</h2>
-    <p>At this time, StatusQuo only supports <strong>English</strong>. Please ensure all submitted quotes are in English so they can be reviewed by our moderation team.</p>
-
-    <h2>🚫 Content Guidelines (Strict)</h2>
-    <div class="warning">
-        <p><strong>StatusQuo is a professional tool.</strong> We have a zero-tolerance policy for offensive content.</p>
-    </div>
-    <p>When submitting new quotes, you agree to the following rules:</p>
+    <h2>🔍 Checking Your Submission</h2>
+    <p>We review all quotes manually to ensure quality. This process typically takes <strong>1 hour</strong>.</p>
+    <p>To check if your quote has been approved, use the search command:</p>
+    <p class="code">/quo-search "Your quote text here"</p>
+    
     <ul>
-        <li><strong>No Hate Speech:</strong> Any share or form.</li>
-        <li><strong>No Foul Language:</strong> Keep quotes "Safe for Work".</li>
-        <li><strong>No PII:</strong> Do not include private names, phone numbers...</li>
-    </ul>
-    <p><em>Violation of these rules may result in a permanent ban from using the service.</em></p>
-
-    <h2>⚡ Usage Limits</h2>
-    <p>To ensure fair usage for everyone, the following limits apply:</p>
-    <ul>
-        <li><strong>Manual Updates:</strong> Once every 10 minutes.</li>
-        <li><strong>Pending Quotes:</strong> Maximum 3 unapproved quotes at a time.</li>
-        <li><strong>Daily Submissions:</strong> Maximum 10 approved quotes per day.</li>
+        <li><strong>Found?</strong> Great! It's in the rotation.</li>
+        <li><strong>Not found?</strong> It is either still pending review or was denied for violating our guidelines.</li>
     </ul>
 
-    <h2>🐛 Troubleshooting</h2>
-    <ul>
-        <li>
-            <strong>Bot stopped updating?</strong><br>
-            If you changed your Slack password, your token was revoked. Please reinstall the app to reconnect.
-        </li>
-        <li>
-            <strong>New quote not showing up?</strong><br>
-            Adding a quote is a <strong>two-step process</strong>. After you submit the text, you must click the green <strong>"Approve"</strong> button sent to your App Messages to save it to the database.
-        </li>
-    </ul>
-
-    <h2>✉️ Contact Us</h2>
-    <p>For direct support or privacy inquiries, please email us:</p>
-    <p><strong>support@statusquo.bot</strong> (Replace with your real email)</p>
+    <h2>🚫 Content Guidelines</h2>
+    <p>We strictly reject content containing hate speech, foul language, or PII.</p>
 
     <div style="margin-top: 40px;">
         <a href="/" class="button">Back to Home</a>
