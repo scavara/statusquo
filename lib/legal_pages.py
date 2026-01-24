@@ -94,7 +94,7 @@ SUPPORT_HTML = """
     <ul>
         <li>
             <strong>Bot stopped updating your status?</strong><br>
-            If you recently changed your Slack password, your access token was automatically revoked by Slack. Please <a href="/slack/install">reinstall the app</a> to reconnect.
+            If you recently changed your Slack password, your access token was automatically revoked by Slack. Please <a href="/install">reinstall the app</a> to reconnect.
         </li>
         <li>
             <strong>"Dispatch Failed" error?</strong><br>
@@ -122,6 +122,8 @@ INDEX_HTML = """
 <html>
 <head>
     <title>StatusQuo Bot</title>
+    <meta name="slack-app-id" content="A0A7V8J2AG5">
+
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; text-align: center; padding: 50px; color: #333; }
         h1 { font-size: 2.5em; margin-bottom: 10px; }
@@ -136,12 +138,12 @@ INDEX_HTML = """
     <h1>🤖 StatusQuo</h1>
     <p>The witty, automated status updater for Slack.</p>
     
-    <a href="/slack/install" class="btn">Add to Slack</a>
+    <a href="/install" class="btn">Add to Slack</a>
     
     <div class="links">
         <a href="/privacy">Privacy Policy</a> | 
         <a href="/support">Support & Terms</a> | 
-        <a href="https://github.com/scavara/statusquo">GitHub</a>
+        <a href="mailto:scavara+statusquo+home@gmail.com">Contact</a>
     </div>
 </body>
 </html>

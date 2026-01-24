@@ -2,11 +2,24 @@ import os
 import json
 import uuid
 import boto3
-from flask import Flask, request, session, redirect, url_for, render_template_string
+import logging
+from functools import wraps
+from flask import (
+    Flask,
+    request,
+    session,
+    redirect,
+    url_for,
+    render_template_string,
+    flash,
+)
+from werkzeug.middleware.proxy_fix import ProxyFix
 from authlib.integrations.flask_client import OAuth
+from flask_wtf.csrf import CSRFProtect
 from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
 from slack_bolt.oauth.oauth_settings import OAuthSettings
+from slack_bolt.request import BoltRequest
 from slack_sdk.oauth.state_store import FileOAuthStateStore
 from boto3.dynamodb.conditions import Attr
 
@@ -18,6 +31,10 @@ from lib.quote_deduplicator import QuoteDeduplicator
 from lib.legal_pages import PRIVACY_HTML, SUPPORT_HTML, INDEX_HTML
 from lib.rate_limiter import RateLimiter
 from lib.admin_ui import DASHBOARD_TEMPLATE, LOGIN_HTML
+
+# --- LOGGING SETUP ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
 SLACK_CLIENT_ID = os.environ["SLACK_CLIENT_ID"]
@@ -55,7 +72,36 @@ app = App(
 )
 
 flask_app = Flask(__name__)
+
+# --- SECURITY HARDENING: SESSION CONFIG ---
+# Ensure strict session handling to prevent hijacking
+if os.environ.get("FLASK_ENV") == "production" and not os.environ.get("FLASK_SECRET_KEY"):
+    raise ValueError("FATAL: FLASK_SECRET_KEY is not set.")
+
 flask_app.secret_key = FLASK_SECRET_KEY
+flask_app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SECURE=True,  # Requires HTTPS (Heroku provides this)
+    SESSION_COOKIE_SAMESITE='Lax'
+)
+
+# --- SECURITY HARDENING: CSRF PROTECTION ---
+# Protects Admin forms. Slack webhooks are exempted below.
+csrf = CSRFProtect(flask_app)
+
+# --- SECURITY HARDENING: HEADERS ---
+@flask_app.after_request
+def add_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return response
+
+# --- SECURITY HARDENING: PROXY FIX ---
+flask_app.wsgi_app = ProxyFix(
+    flask_app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1
+)
+
 handler = SlackRequestHandler(app)
 
 # --- OAUTH SETUP ---
@@ -135,6 +181,15 @@ def get_home_view(user_id):
                         "type": "button",
                         "text": {
                             "type": "plain_text",
+                            "text": "🌪️ Set Filter",
+                            "emoji": True,
+                        },
+                        "action_id": "home_open_filter_modal",
+                    },
+                    {
+                        "type": "button",
+                        "text": {
+                            "type": "plain_text",
                             "text": "🔍 Search",
                             "emoji": True,
                         },
@@ -144,7 +199,7 @@ def get_home_view(user_id):
                         "type": "button",
                         "text": {
                             "type": "plain_text",
-                            "text": "🗑️ Reset",
+                            "text": "🗑️ Clear Filter",
                             "emoji": True,
                         },
                         "style": "danger",
@@ -158,7 +213,7 @@ def get_home_view(user_id):
                 "elements": [
                     {
                         "type": "mrkdwn",
-                        "text": "Need help? Check the <https://github.com/scavara/statusquo|Documentation> or use `/quo-search`.",
+                        "text": "Need help? Check the <https://github.com/scavara/statusquo|Documentation>. To search for quotes, use `/quo-search`.",
                     }
                 ],
             },
@@ -168,8 +223,9 @@ def get_home_view(user_id):
 
 @app.event("app_home_opened")
 def update_home_tab(client, event, logger):
+    user_id = event["user"]
     try:
-        client.views_publish(user_id=event["user"], view=get_home_view(event["user"]))
+        client.views_publish(user_id=user_id, view=get_home_view(user_id))
     except Exception as e:
         logger.error(f"Error publishing home tab: {e}")
 
@@ -185,13 +241,11 @@ def action_refresh_status(ack, body, client):
     user_id = body["user"]["id"]
     team_id = body["team"]["id"]
 
-    # Rate Limit
     allowed, msg = limiter.check_update_limit(user_id)
     if not allowed:
         client.chat_postEphemeral(channel=user_id, user=user_id, text=msg)
         return
 
-    # User-specific installation check
     installation = installation_store.find_installation(
         enterprise_id=body.get("enterprise_id"), team_id=team_id, user_id=user_id
     )
@@ -310,7 +364,6 @@ def handle_modal_submission(ack, body, client, view):
         )
         return
 
-    # Deduplication check
     is_duplicate, _ = deduplicator.check_exists(text)
     if is_duplicate:
         client.chat_postMessage(
@@ -318,7 +371,6 @@ def handle_modal_submission(ack, body, client, view):
         )
         return
 
-    # Save to Pending Table
     quote_id = str(uuid.uuid4())
     try:
         pending_table.put_item(
@@ -407,6 +459,57 @@ def handle_search_modal(ack, body, client, view):
         client.chat_postMessage(channel=user_id, text=results_text)
     except Exception as e:
         client.chat_postMessage(channel=user_id, text=f"❌ Error: {e}")
+
+
+# --- FILTER MODAL HANDLERS ---
+
+
+@app.action("home_open_filter_modal")
+def action_open_filter_modal(ack, body, client):
+    ack()
+    client.views_open(
+        trigger_id=body["trigger_id"],
+        view={
+            "type": "modal",
+            "callback_id": "modal_filter_submit",
+            "title": {"type": "plain_text", "text": "Filter Quotes"},
+            "submit": {"type": "plain_text", "text": "Set Filter"},
+            "close": {"type": "plain_text", "text": "Cancel"},
+            "blocks": [
+                {
+                    "type": "section",
+                    "text": {
+                        "type": "mrkdwn",
+                        "text": "Only use quotes from a specific author (e.g., 'Twain', 'Yoda').",
+                    },
+                },
+                {
+                    "type": "input",
+                    "block_id": "filter_input",
+                    "element": {
+                        "type": "plain_text_input",
+                        "action_id": "value",
+                        "placeholder": {"type": "plain_text", "text": "Author Name"},
+                        "min_length": 2,
+                    },
+                    "label": {"type": "plain_text", "text": "Author Partial Match"},
+                },
+            ],
+        },
+    )
+
+
+@app.view("modal_filter_submit")
+def handle_filter_modal_submission(ack, body, client, view):
+    ack()
+    user_id = body["user"]["id"]
+    author_filter = view["state"]["values"]["filter_input"]["value"]["value"].strip()
+
+    if filter_store.set_filter(user_id, author_filter):
+        # Refresh the Home Tab immediately
+        client.views_publish(user_id=user_id, view=get_home_view(user_id))
+    else:
+        client.chat_postMessage(channel=user_id, text="❌ Error setting filter.")
 
 
 # ==========================================
@@ -498,20 +601,18 @@ def handle_update_command(ack, body, respond):
         respond(msg)
         return
 
-    # Explicitly pass user_id to find THIS user's token
     installation = installation_store.find_installation(
         enterprise_id=enterprise_id, team_id=team_id, user_id=user_id
     )
 
     if not installation or not installation.user_token:
-        # Construct dynamic install URL if possible, else fallback
         try:
             base_url = request.url_root.rstrip("/")
             if "herokuapp" in base_url and base_url.startswith("http://"):
                 base_url = base_url.replace("http://", "https://")
-            install_url = f"{base_url}/slack/install"
+            install_url = f"{base_url}/install"
         except Exception:
-            install_url = "/slack/install"
+            install_url = "/install"
 
         respond(
             f"⚠️ Permission Denied. Please <{install_url}|Authorize StatusQuo> first."
@@ -578,20 +679,64 @@ def handle_filter_command(ack, body, respond):
 # 4. ADMIN WEB UI ROUTES
 # ==========================================
 
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        user = session.get("user")
+
+        # Case 1: User is not logged in at all -> Show the Login Button
+        if not user:
+            return LOGIN_HTML
+
+        # Case 2: User IS logged in, but their email is not allowed -> Block them
+        if user.get("email") not in ADMIN_EMAILS:
+            logger.warning(f"Unauthorized access attempt by {user.get('email')}")
+            return "🚫 Access Denied", 403
+
+        # Case 3: Authorized -> Let them pass
+        return f(*args, **kwargs)
+    return decorated_function
+
+
+@flask_app.route("/install", methods=["GET"])
+def install_redirect():
+    """
+    Directly redirects to Slack's OAuth page, skipping the landing page.
+    """
+    # 1. Generate state
+    state = app.oauth_flow.settings.state_store.issue()
+
+    # 2. Create a dummy BoltRequest for the builder
+    request_stub = BoltRequest(body="", headers={})
+
+    # 3. Build the URL
+    url = app.oauth_flow.build_authorize_url(state=state, request=request_stub)
+
+    # 4. SECURITY FIX: Manually set the state cookie.
+    response = redirect(url)
+    response.set_cookie(
+        key=app.oauth_flow.settings.state_cookie_name,
+        value=state,
+        max_age=600,
+        secure=True,  # Required for Heroku/HTTPS
+        httponly=True,  # Protects against XSS
+    )
+
+    return response
+
 
 @flask_app.route("/admin")
+@admin_required
 def admin_dashboard():
     user = session.get("user")
-    if not user:
-        return LOGIN_HTML
-    if user["email"] not in ADMIN_EMAILS:
-        return "🚫 Access Denied."
-
+    # Email check is now handled by @admin_required, but logic remains safe.
     try:
         response = pending_table.scan()
         quotes = response.get("Items", [])
     except Exception as e:
-        return f"Database Error: {e}"
+        logger.error(f"Admin Dashboard Error: {e}")
+        return f"<h1>⚠️ System Error</h1><p>Could not load pending quotes.</p><pre>{e}</pre>"
+
     return render_template_string(DASHBOARD_TEMPLATE, quotes=quotes, user=user)
 
 
@@ -603,8 +748,12 @@ def google_login():
 
 @flask_app.route("/admin/auth")
 def google_auth():
-    token = oauth.google.authorize_access_token()
-    session["user"] = token["userinfo"]
+    try:
+        token = oauth.google.authorize_access_token()
+        session["user"] = token["userinfo"]
+    except Exception as e:
+        logger.error(f"Google Auth Error: {e}")
+        return "Auth failed. Please try again."
     return redirect("/admin")
 
 
@@ -615,38 +764,42 @@ def logout():
 
 
 @flask_app.route("/admin/approve/<quote_id>", methods=["POST"])
+@admin_required
 def admin_approve(quote_id):
-    if not session.get("user"):
-        return redirect("/admin")
+    try:
+        resp = pending_table.get_item(Key={"quote_id": quote_id})
+        item = resp.get("Item")
+        if item:
+            quotes_table.put_item(
+                Item={
+                    "quote_id": item["quote_id"],
+                    "text": item["text"],
+                    "author": item["author"],
+                    "emoji": item["emoji"],
+                }
+            )
+            pending_table.delete_item(Key={"quote_id": quote_id})
+            limiter.process_approval(item["proposer"])
+    except Exception as e:
+        logger.error(f"Failed to approve {quote_id}: {e}")
+        return f"Error approving quote: {e}", 500
 
-    # Move from Pending to Approved
-    resp = pending_table.get_item(Key={"quote_id": quote_id})
-    item = resp.get("Item")
-    if item:
-        quotes_table.put_item(
-            Item={
-                "quote_id": item["quote_id"],
-                "text": item["text"],
-                "author": item["author"],
-                "emoji": item["emoji"],
-            }
-        )
-        pending_table.delete_item(Key={"quote_id": quote_id})
-        limiter.process_approval(item["proposer"])
     return redirect("/admin")
 
 
 @flask_app.route("/admin/deny/<quote_id>", methods=["POST"])
+@admin_required
 def admin_deny(quote_id):
-    if not session.get("user"):
-        return redirect("/admin")
+    try:
+        resp = pending_table.get_item(Key={"quote_id": quote_id})
+        item = resp.get("Item")
+        pending_table.delete_item(Key={"quote_id": quote_id})
+        if item:
+            limiter.process_denial(item["proposer"])
+    except Exception as e:
+        logger.error(f"Failed to deny {quote_id}: {e}")
+        return f"Error denying quote: {e}", 500
 
-    # Just delete from Pending
-    resp = pending_table.get_item(Key={"quote_id": quote_id})
-    item = resp.get("Item")
-    pending_table.delete_item(Key={"quote_id": quote_id})
-    if item:
-        limiter.process_denial(item["proposer"])
     return redirect("/admin")
 
 
@@ -669,6 +822,7 @@ def privacy():
 
 
 @flask_app.route("/slack/events", methods=["POST"])
+@csrf.exempt
 def slack_events():
     return handler.handle(request)
 

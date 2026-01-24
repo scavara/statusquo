@@ -39,9 +39,11 @@ DASHBOARD_TEMPLATE = """
                     
                     <div class="actions">
                         <form action="/admin/approve/{{ q.quote_id }}" method="post" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                             <button type="submit" class="button button-primary">Approve</button>
                         </form>
                         <form action="/admin/deny/{{ q.quote_id }}" method="post" style="display:inline;">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
                             <button type="submit" class="button button-clear" style="color: red;">Deny</button>
                         </form>
                     </div>

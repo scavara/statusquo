@@ -7,3 +7,4 @@ python-dotenv
 gunicorn
 Authlib>=1.2.0
 requests
+Flask-WTF
