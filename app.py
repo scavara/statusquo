@@ -1,7 +1,7 @@
 import os
 import json
 import uuid
-import re  # <--- ADDED: Required for regex stripping
+import re
 import boto3
 import logging
 from functools import wraps
@@ -145,7 +145,6 @@ def clean_slack_markdown(text):
 # ==========================================
 # 1. APP HOME TAB (VISUAL INTERFACE)
 # ==========================================
-# ... (No changes to home view functions) ...
 
 
 def get_home_view(user_id):
@@ -681,10 +680,17 @@ def handle_filter_command(ack, body, respond):
         return
 
     if user_input.lower() == "flush":
+        # --- NEW LOGIC START ---
+        current_filter = filter_store.get_filter(user_id)
+        if not current_filter:
+            respond("⚠️ No filters applied.")
+            return
+
         if filter_store.clear_filter(user_id):
             respond("🗑️ Filter cleared!")
         else:
             respond("❌ Error.")
+        # --- NEW LOGIC END ---
         return
 
     if user_input.lower() == "list":
