@@ -7,6 +7,7 @@ import uuid
 from slack_sdk.oauth.installation_store import InstallationStore, Installation
 from slack_sdk.oauth.state_store import OAuthStateStore
 
+
 # --- 1. Installation Store (Saves tokens) ---
 class DynamoDBInstallationStore(InstallationStore):
     def __init__(self, table_name="SlackInstallations", client_id=None, logger=None):
@@ -72,7 +73,9 @@ class DynamoDBInstallationStore(InstallationStore):
 
 # --- 2. OAuth State Store (Saves login state for Security) ---
 class DynamoDBOAuthStateStore(OAuthStateStore):
-    def __init__(self, table_name="SlackOAuthState", expiration_seconds=600, logger=None):
+    def __init__(
+        self, table_name="SlackOAuthState", expiration_seconds=600, logger=None
+    ):
         self.dynamodb = boto3.resource("dynamodb")
         self.table = self.dynamodb.Table(table_name)
         self.expiration_seconds = expiration_seconds
