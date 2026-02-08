@@ -15,31 +15,63 @@ class RateLimiter:
         except ClientError:
             return {}
 
-    # --- FEATURE 1: UPDATE STATUS LIMIT (1 per 10m) ---
-    def check_update_limit(self, user_id, limit_minutes=10):
+    # --- FEATURE 1: BURST UPDATE LIMIT (3 per 10m) ---
+    def check_update_limit(self, user_id, max_updates=3, window_minutes=10):
         stats = self._get_user_stats(user_id)
-        last_ts = int(stats.get("last_update_ts", 0))
+
+        # Current time and window settings
         current_ts = int(time.time())
+        window_seconds = window_minutes * 60
 
-        diff = current_ts - last_ts
-        limit_seconds = limit_minutes * 60
+        # Fetch stored window data (defaults to 0)
+        window_start = int(stats.get("update_window_start", 0))
+        current_count = int(stats.get("update_window_count", 0))
 
-        if diff < limit_seconds:
-            wait_time = int((limit_seconds - diff) / 60) + 1
+        # Check if the window has expired (Reset logic)
+        if (current_ts - window_start) > window_seconds:
+            # We are in a new window, so count is effectively 0
+            return True, None
+
+        # We are inside the window, check count
+        if current_count >= max_updates:
+            # Calculate remaining wait time
+            reset_ts = window_start + window_seconds
+            wait_mins = int((reset_ts - current_ts) / 60) + 1
             return (
                 False,
-                f"⏳ *Cooldown Active:* Please wait {wait_time} minutes before updating your status again.",
+                f"⏳ *Limit Reached:* You've used {current_count}/{max_updates} updates. Resets in {wait_mins} min.",
             )
 
         return True, None
 
-    def log_update_attempt(self, user_id):
-        """Updates the timestamp to NOW."""
-        self.table.update_item(
-            Key={"quote_id": f"USER_{user_id}"},
-            UpdateExpression="SET last_update_ts = :ts",
-            ExpressionAttributeValues={":ts": int(time.time())},
-        )
+    def log_update_attempt(self, user_id, window_minutes=10):
+        """
+        Increments the usage count.
+        Resets the window if the previous one expired.
+        """
+        stats = self._get_user_stats(user_id)
+
+        current_ts = int(time.time())
+        window_seconds = window_minutes * 60
+
+        window_start = int(stats.get("update_window_start", 0))
+        current_count = int(stats.get("update_window_count", 0))
+
+        # Logic: New Window vs Increment
+        if (current_ts - window_start) > window_seconds:
+            # START NEW WINDOW
+            self.table.update_item(
+                Key={"quote_id": f"USER_{user_id}"},
+                UpdateExpression="SET update_window_start = :now, update_window_count = :one",
+                ExpressionAttributeValues={":now": current_ts, ":one": 1},
+            )
+        else:
+            # INCREMENT EXISTING WINDOW
+            self.table.update_item(
+                Key={"quote_id": f"USER_{user_id}"},
+                UpdateExpression="SET update_window_count = update_window_count + :inc",
+                ExpressionAttributeValues={":inc": 1},
+            )
 
     # --- FEATURE 2: ADD QUOTE LIMITS ---
     def check_add_limit(self, user_id, max_pending=3, max_daily=10):
@@ -94,8 +126,6 @@ class RateLimiter:
 
     def process_approval(self, user_id):
         """Quote Approved: Pending -1, Approved +1"""
-        # We also handle the daily reset logic here implicitly by just incrementing
-        # (Real-world app might need stricter date handling, but this suffices for a bot)
         self.table.update_item(
             Key={"quote_id": f"USER_{user_id}"},
             UpdateExpression="SET pending_count = pending_count - :dec, daily_approved_count = if_not_exists(daily_approved_count, :zero) + :inc",

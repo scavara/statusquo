@@ -5,7 +5,6 @@ PRIVACY_HTML = """
     <title>Privacy Policy - StatusQuo</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <style>
-        /* ... existing styles ... */
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
         h1 { color: #2c3e50; }
         h2 { color: #34495e; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 30px; }
@@ -48,7 +47,6 @@ SUPPORT_HTML = """
     <title>Support - StatusQuo</title>
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <style>
-        /* ... existing styles ... */
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
         h1 { color: #2c3e50; }
         h2 { color: #34495e; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 30px; }
@@ -87,7 +85,7 @@ SUPPORT_HTML = """
 
     <h2>⚡ Usage Limits</h2>
     <ul>
-        <li><strong>Manual Updates:</strong> Once every 10 minutes.</li>
+        <li><strong>Manual Updates:</strong> 3 updates per 10 minutes.</li>
         <li><strong>Pending Quotes:</strong> Maximum 3 unapproved quotes at a time.</li>
         <li><strong>Daily Submissions:</strong> Maximum 10 approved quotes per day.</li>
     </ul>
@@ -128,7 +126,6 @@ INDEX_HTML = """
     <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
 
     <style>
-        /* ... existing styles ... */
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; text-align: center; padding: 50px; color: #333; }
         h1 { font-size: 2.5em; margin-bottom: 10px; }
         p { font-size: 1.2em; color: #666; }
