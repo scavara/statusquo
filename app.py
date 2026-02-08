@@ -95,6 +95,18 @@ def add_security_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['X-Frame-Options'] = 'SAMEORIGIN'
     response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+
+    # Restricts sources for scripts, styles, and images.
+    # Note: We allow 'unsafe-inline' for now because admin_ui.py uses inline scripts/styles.
+    # Ideally, move JS/CSS to separate static files.
+    csp = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+        "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+        "img-src 'self' data: https://*.slack-edge.com; "
+        "connect-src 'self'; "
+    )
+    response.headers['Content-Security-Policy'] = csp
     return response
 
 # --- SECURITY HARDENING: PROXY FIX ---
@@ -729,16 +741,15 @@ def install_redirect():
 @admin_required
 def admin_dashboard():
     user = session.get("user")
-    # Email check is now handled by @admin_required, but logic remains safe.
     try:
         response = pending_table.scan()
         quotes = response.get("Items", [])
     except Exception as e:
-        logger.error(f"Admin Dashboard Error: {e}")
-        return f"<h1>⚠️ System Error</h1><p>Could not load pending quotes.</p><pre>{e}</pre>"
+        # HARDENING: Log the error internally, show generic message to user
+        logger.error(f"Admin Dashboard Error: {e}", exc_info=True)
+        return "<h1>⚠️ System Error</h1><p>Unable to load dashboard. Please check server logs.</p>", 500
 
     return render_template_string(DASHBOARD_TEMPLATE, quotes=quotes, user=user)
-
 
 @flask_app.route("/admin/google")
 def google_login():

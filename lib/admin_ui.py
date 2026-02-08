@@ -13,45 +13,75 @@ DASHBOARD_TEMPLATE = """
 <html>
 <head>
     <title>StatusQuo Admin</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/milligram/1.4.1/milligram.min.css">
-    <style>
-        body { padding: 40px; }
-        .card { border: 1px solid #eee; padding: 20px; margin-bottom: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
-        .emoji { font-size: 2em; }
-        .actions { margin-top: 15px; }
-    </style>
-</head>
+    </head>
 <body>
-    <h1>🛡️ Moderation Queue</h1>
-    <p>Logged in as: <strong>{{ user.name }}</strong> | <a href="/admin/logout">Logout</a></p>
-    <hr>
-    
-    {% if not quotes %}
-        <p>✅ All caught up! No pending quotes.</p>
-    {% else %}
-        {% for q in quotes %}
-        <div class="card">
-            <div class="row">
-                <div class="column column-10"><span class="emoji">{{ q.emoji }}</span></div>
-                <div class="column column-90">
-                    <blockquote>{{ q.text }}</blockquote>
-                    <p><em>— {{ q.author }}</em> <small>(Submitted by: {{ q.proposer }})</small></p>
-                    
-                    <div class="actions">
-                        <form action="/admin/approve/{{ q.quote_id }}" method="post" style="display:inline;">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                            <button type="submit" class="button button-primary">Approve</button>
-                        </form>
-                        <form action="/admin/deny/{{ q.quote_id }}" method="post" style="display:inline;">
-                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
-                            <button type="submit" class="button button-clear" style="color: red;">Deny</button>
-                        </form>
-                    </div>
+    <div class="container">
+        {% if not quotes %}
+            {% else %}
+            {% for q in quotes %}
+            <div class="card">
+                <div class="emoji-container">
+                    {{ q.emoji }}
                 </div>
+
+                <div class="content">
+                    <blockquote id="quote-{{ loop.index }}" class="quote-text">
+                        </blockquote>
+
+                    <div class="meta">
+                        — <strong>{{ q.author }}</strong>
+                        <span>|</span> Submitted by: <code>{{ q.proposer }}</code>
+                    </div>
+
+                    </div>
             </div>
-        </div>
-        {% endfor %}
-    {% endif %}
+            {% endfor %}
+        {% endif %}
+    </div>
+
+    <script id="quote-data" type="application/json">
+        {{ quotes | tojson }}
+    </script>
+
+    <script>
+        const emojiConverter = new EmojiConvertor();
+        emojiConverter.init_env();
+        emojiConverter.replace_mode = 'unified';
+        emojiConverter.allow_native = true;
+
+        function cleanSlackMarkdown(text) {
+            if (!text) return "";
+            text = text.replace(/\*([^\*]+)\*/g, '$1');
+            text = text.replace(/_([^_]+)_/g, '$1');
+            text = text.replace(/~([^~]+)~/g, '$1');
+            text = text.replace(/`([^`]+)`/g, '$1');
+            return text;
+        }
+
+        document.addEventListener("DOMContentLoaded", function() {
+            // 1. Load Data Securely
+            const dataElement = document.getElementById('quote-data');
+            // Handle case where no quotes exist
+            const allQuotes = dataElement ? JSON.parse(dataElement.textContent) : [];
+
+            // 2. Render content
+            allQuotes.forEach((q, index) => {
+                // Loop index in Jinja is 1-based
+                const el = document.getElementById(`quote-${index + 1}`);
+                if (el) {
+                    // innerText prevents HTML injection (XSS)
+                    el.innerText = cleanSlackMarkdown(q.text);
+                }
+
+                // Render Emoji (finding the sibling container)
+                const card = el.closest('.card');
+                const emojiContainer = card.querySelector('.emoji-container');
+                if (emojiContainer) {
+                    emojiContainer.innerHTML = emojiConverter.replace_colons(q.emoji);
+                }
+            });
+        });
+    </script>
 </body>
 </html>
 """
