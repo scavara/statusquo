@@ -1,4 +1,3 @@
-import subprocess
 import sys
 import os
 import uuid
@@ -7,22 +6,7 @@ import boto3
 from dotenv import load_dotenv
 from botocore.exceptions import NoCredentialsError, PartialCredentialsError, ClientError
 
-
-# --- 1. Dependencies ---
-def install_dependencies():
-    required_packages = ["boto3", "python-dotenv"]
-    try:
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install"] + required_packages
-        )
-    except subprocess.CalledProcessError:
-        print("Failed to install required packages.")
-        sys.exit(1)
-
-
-install_dependencies()
-
-# --- 2. Main Logic ---
+# --- Main Logic ---
 load_dotenv()
 
 
@@ -87,9 +71,7 @@ def import_csv_to_dynamodb(csv_filepath, table_name):
 
             with table.batch_writer() as batch:
                 for row in reader:
-                    # --- THE FIX ---
-                    # Apply .strip('"') to ALL fields to remove extra CSV quotes
-                    # .strip() (no args) cleans up surrounding whitespace
+                    # Clean up fields
                     text_clean = row["text"].strip('"').strip()
                     author_clean = row["author"].strip('"').strip()
                     emoji_clean = row["emoji"].strip('"').strip()
@@ -136,4 +118,5 @@ def import_csv_to_dynamodb(csv_filepath, table_name):
 
 
 if __name__ == "__main__":
+    # Ensure this matches your actual table name in AWS
     import_csv_to_dynamodb("quotes.csv", "FunQuotes")

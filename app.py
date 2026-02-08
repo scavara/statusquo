@@ -75,26 +75,31 @@ flask_app = Flask(__name__)
 
 # --- SECURITY HARDENING: SESSION CONFIG ---
 # Ensure strict session handling to prevent hijacking
-if os.environ.get("FLASK_ENV") == "production" and not os.environ.get("FLASK_SECRET_KEY"):
+if os.environ.get("FLASK_ENV") == "production" and not os.environ.get(
+    "FLASK_SECRET_KEY"
+):
     raise ValueError("FATAL: FLASK_SECRET_KEY is not set.")
 
 flask_app.secret_key = FLASK_SECRET_KEY
 flask_app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SECURE=True,  # Requires HTTPS (Heroku provides this)
-    SESSION_COOKIE_SAMESITE='Lax'
+    SESSION_COOKIE_SAMESITE="Lax",
 )
 
 # --- SECURITY HARDENING: CSRF PROTECTION ---
 # Protects Admin forms. Slack webhooks are exempted below.
 csrf = CSRFProtect(flask_app)
 
+
 # --- SECURITY HARDENING: HEADERS ---
 @flask_app.after_request
 def add_security_headers(response):
-    response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-    response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    response.headers["Strict-Transport-Security"] = (
+        "max-age=31536000; includeSubDomains"
+    )
 
     # Restricts sources for scripts, styles, and images.
     # Note: We allow 'unsafe-inline' for now because admin_ui.py uses inline scripts/styles.
@@ -106,8 +111,9 @@ def add_security_headers(response):
         "img-src 'self' data: https://*.slack-edge.com; "
         "connect-src 'self'; "
     )
-    response.headers['Content-Security-Policy'] = csp
+    response.headers["Content-Security-Policy"] = csp
     return response
+
 
 # --- SECURITY HARDENING: PROXY FIX ---
 flask_app.wsgi_app = ProxyFix(
@@ -691,6 +697,7 @@ def handle_filter_command(ack, body, respond):
 # 4. ADMIN WEB UI ROUTES
 # ==========================================
 
+
 def admin_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -707,6 +714,7 @@ def admin_required(f):
 
         # Case 3: Authorized -> Let them pass
         return f(*args, **kwargs)
+
     return decorated_function
 
 
@@ -747,9 +755,13 @@ def admin_dashboard():
     except Exception as e:
         # HARDENING: Log the error internally, show generic message to user
         logger.error(f"Admin Dashboard Error: {e}", exc_info=True)
-        return "<h1>⚠️ System Error</h1><p>Unable to load dashboard. Please check server logs.</p>", 500
+        return (
+            "<h1>⚠️ System Error</h1><p>Unable to load dashboard. Please check server logs.</p>",
+            500,
+        )
 
     return render_template_string(DASHBOARD_TEMPLATE, quotes=quotes, user=user)
+
 
 @flask_app.route("/admin/google")
 def google_login():
