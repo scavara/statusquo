@@ -20,11 +20,10 @@ from slack_bolt import App
 from slack_bolt.adapter.flask import SlackRequestHandler
 from slack_bolt.oauth.oauth_settings import OAuthSettings
 from slack_bolt.request import BoltRequest
-from slack_sdk.oauth.state_store import FileOAuthStateStore
 from boto3.dynamodb.conditions import Attr
 
 # --- LOCAL IMPORTS ---
-from lib.installation_store import DynamoDBInstallationStore
+from lib.installation_store import DynamoDBInstallationStore, DynamoDBOAuthStateStore
 from lib.filter_store import FilterStore
 from lib.status_logic import perform_user_update
 from lib.quote_deduplicator import QuoteDeduplicator
@@ -67,7 +66,7 @@ app = App(
         scopes=["commands", "chat:write"],
         user_scopes=["users.profile:write"],
         installation_store=installation_store,
-        state_store=FileOAuthStateStore(expiration_seconds=600, base_dir="./data"),
+        state_store=DynamoDBOAuthStateStore(expiration_seconds=600),
     ),
 )
 
