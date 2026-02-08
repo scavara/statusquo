@@ -1,11 +1,11 @@
-# statusquo/lib/legal_pages.py
-
 PRIVACY_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
     <title>Privacy Policy - StatusQuo</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <style>
+        /* ... existing styles ... */
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
         h1 { color: #2c3e50; }
         h2 { color: #34495e; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 30px; }
@@ -46,7 +46,9 @@ SUPPORT_HTML = """
 <html>
 <head>
     <title>Support - StatusQuo</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
     <style>
+        /* ... existing styles ... */
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; max-width: 800px; margin: 0 auto; padding: 20px; color: #333; }
         h1 { color: #2c3e50; }
         h2 { color: #34495e; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 30px; }
@@ -123,8 +125,10 @@ INDEX_HTML = """
 <head>
     <title>StatusQuo Bot</title>
     <meta name="slack-app-id" content="A0A7V8J2AG5">
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
 
     <style>
+        /* ... existing styles ... */
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; text-align: center; padding: 50px; color: #333; }
         h1 { font-size: 2.5em; margin-bottom: 10px; }
         p { font-size: 1.2em; color: #666; }

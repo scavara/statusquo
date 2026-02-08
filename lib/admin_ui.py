@@ -1,22 +1,32 @@
-# Simple HTML for the Admin Dashboard
-
 LOGIN_HTML = """
-<div style="text-align: center; margin-top: 50px; font-family: sans-serif;">
-    <h1>🔐 Admin Access</h1>
-    <p>Please log in with your Google Account to manage quotes.</p>
-    <a href="/admin/google" style="background: #4285F4; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">Sign in with Google</a>
-</div>
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Login - StatusQuo</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body>
+    <div style="text-align: center; margin-top: 50px; font-family: sans-serif;">
+        <h1>🔐 Admin Access</h1>
+        <p>Please log in with your Google Account to manage quotes.</p>
+        <a href="/admin/google" style="background: #4285F4; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">Sign in with Google</a>
+    </div>
+</body>
+</html>
 """
 
+# Added link tag to head
 DASHBOARD_TEMPLATE = """
 <!DOCTYPE html>
 <html>
 <head>
     <title>StatusQuo Admin</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/milligram/1.4.1/milligram.min.css">
     <script src="https://cdn.jsdelivr.net/npm/emoji-js@3.6.0/lib/emoji.min.js"></script>
     
     <style>
+        /* ... existing styles ... */
         body { padding: 40px; background-color: #f4f5f6; }
         .container { max-width: 900px; margin: 0 auto; }
         
@@ -70,13 +80,13 @@ DASHBOARD_TEMPLATE = """
         {% else %}
             {% for q in quotes %}
             <div class="card">
-                <div class="emoji-container" id="emoji-{{ loop.index }}">
+                <div class="emoji-container" data-emoji="{{ q.emoji }}">
                     {{ q.emoji }}
                 </div>
                 
                 <div class="content">
-                    <blockquote class="quote-text" id="quote-{{ loop.index }}">
-                        Loading...
+                    <blockquote class="quote-text" data-text="{{ q.text }}">
+                        {{ q.text }}
                     </blockquote>
                     
                     <div class="meta">
@@ -101,11 +111,8 @@ DASHBOARD_TEMPLATE = """
         {% endif %}
     </div>
 
-    <script id="quote-data" type="application/json">
-        {{ quotes | tojson }}
-    </script>
-
     <script>
+        // ... existing script ...
         // Initialize Emoji Converter
         const emojiConverter = new EmojiConvertor();
         emojiConverter.init_env();
@@ -127,26 +134,17 @@ DASHBOARD_TEMPLATE = """
         }
 
         document.addEventListener("DOMContentLoaded", function() {
-            // 1. Get Data Securely
-            const dataScript = document.getElementById('quote-data');
-            const allQuotes = dataScript ? JSON.parse(dataScript.textContent) : [];
+            // 1. Render Emojis
+            document.querySelectorAll('.emoji-container').forEach(el => {
+                const rawEmoji = el.getAttribute('data-emoji');
+                // Convert :smile: -> Unicode 😃
+                el.innerHTML = emojiConverter.replace_colons(rawEmoji);
+            });
 
-            // 2. Render content safely
-            allQuotes.forEach((q, index) => {
-                // Jinja loop.index is 1-based, matching our IDs
-                const i = index + 1;
-                
-                // Update Text (innerText prevents HTML injection)
-                const textEl = document.getElementById('quote-' + i);
-                if (textEl) {
-                    textEl.innerText = cleanSlackMarkdown(q.text);
-                }
-                
-                // Update Emoji
-                const emojiEl = document.getElementById('emoji-' + i);
-                if (emojiEl) {
-                    emojiEl.innerHTML = emojiConverter.replace_colons(q.emoji);
-                }
+            // 2. Clean Text (Strip Markdown)
+            document.querySelectorAll('.quote-text').forEach(el => {
+                const rawText = el.getAttribute('data-text');
+                el.innerText = cleanSlackMarkdown(rawText);
             });
         });
     </script>
