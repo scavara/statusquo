@@ -4,6 +4,9 @@
 
 **StatusQuo** is a serverless Slack bot that automates your digital presence. It runs on a daily schedule to update your Slack status with witty quotes, keeping your profile fresh without manual effort.
 
+### 🚀 Live App
+You can find the active running application here: **[https://statusquo-1c0c04fdc62e.herokuapp.com/](https://statusquo-1c0c04fdc62e.herokuapp.com/)**
+
 > 💡 **Built with AI:** This entire project—from system architecture to the Python implementation—was created in collaboration with **Google Gemini**.
 
 Unlike simple cron scripts, StatusQuo features a **"Human-in-the-Loop" workflow**: users can propose new quotes via Slack commands, but they trigger an interactive approval flow for an admin before hitting the production database.

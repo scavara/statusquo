@@ -122,13 +122,10 @@ DASHBOARD_TEMPLATE = """
         // Strip Slack Markdown chars (*bold*, _italic_, etc)
         function cleanSlackMarkdown(text) {
             if (!text) return "";
-            // Remove stars used for bold: *word* -> word
-            text = text.replace(/\*([^\*]+)\*/g, '$1');
-            // Remove underscores used for italics: _word_ -> word
+            // Use double-backslashes to escape the characters for JavaScript
+            text = text.replace(/\\*([^\\*]+)\\*/g, '$1');
             text = text.replace(/_([^_]+)_/g, '$1');
-            // Remove tildes used for strikethrough: ~word~ -> word
             text = text.replace(/~([^~]+)~/g, '$1');
-            // Remove backticks used for code: `word` -> word
             text = text.replace(/`([^`]+)`/g, '$1');
             return text;
         }

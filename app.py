@@ -38,9 +38,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # --- CONFIGURATION ---
-SLACK_CLIENT_ID = os.environ["SLACK_CLIENT_ID"]
-SLACK_CLIENT_SECRET = os.environ["SLACK_CLIENT_SECRET"]
-SLACK_SIGNING_SECRET = os.environ["SLACK_SIGNING_SECRET"]
+SLACK_CLIENT_ID = os.environ.get("SLACK_CLIENT_ID", "xoxb-placeholder")
+SLACK_CLIENT_SECRET = os.environ.get("SLACK_CLIENT_SECRET", "secret-placeholder")
+SLACK_SIGNING_SECRET = os.environ.get("SLACK_SIGNING_SECRET", "signing-placeholder")
 
 # GOOGLE AUTH CONFIG
 GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
@@ -880,5 +880,6 @@ def slack_oauth_redirect():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 3000))
-    print(f"⚡️ StatusQuo Web Server running on port {port}!")
-    flask_app.run(host="0.0.0.0", port=port)
+    host = os.environ.get("FLASK_RUN_HOST", "127.0.0.1")
+    print(f"⚡️ StatusQuo Web Server running on {host}:{port}!")
+    flask_app.run(host=host, port=port)

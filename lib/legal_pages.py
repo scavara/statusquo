@@ -116,7 +116,6 @@ SUPPORT_HTML = """
 </body>
 </html>
 """
-
 INDEX_HTML = """
 <!DOCTYPE html>
 <html>
@@ -142,6 +141,7 @@ INDEX_HTML = """
     <a href="/install" class="btn">Add to Slack</a>
     
     <div class="links">
+        <a href="https://github.com/scavara/statusquo" target="_blank">GitHub Repo</a> | 
         <a href="/privacy">Privacy Policy</a> | 
         <a href="/support">Support & Terms</a> | 
         <a href="mailto:scavara+statusquo+home@gmail.com">Contact</a>
