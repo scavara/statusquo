@@ -852,6 +852,33 @@ def index():
     return INDEX_HTML
 
 
+@flask_app.route("/api/quotes/random", methods=["GET"])
+def api_random_quote():
+    import random
+
+    try:
+        # Scan the table (Perfect for your <10k item FunQuotes table)
+        response = quotes_table.scan()
+        items = response.get("Items", [])
+
+        if not items:
+            return {"error": "No quotes found"}, 404
+
+        # Pick a random quote
+        random_quote = random.choice(items)
+
+        # Return it as cleanly formatted JSON for the Android TV app
+        return {
+            "quoteText": random_quote.get("text", "Relax and let go."),
+            "author": random_quote.get("author", "Anonymous"),
+            "emoji": random_quote.get("emoji", ":speech_balloon:"),
+        }
+
+    except Exception as e:
+        logger.error(f"Error fetching random quote for API: {e}")
+        return {"error": "Internal Server Error"}, 500
+
+
 @flask_app.route("/support", methods=["GET"])
 def support():
     return SUPPORT_HTML
