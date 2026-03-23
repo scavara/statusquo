@@ -128,7 +128,7 @@ class RateLimiter:
         """Quote Approved: Pending -1, Approved +1"""
         self.table.update_item(
             Key={"quote_id": f"USER_{user_id}"},
-            UpdateExpression="SET pending_count = pending_count - :dec, daily_approved_count = if_not_exists(daily_approved_count, :zero) + :inc",
+            UpdateExpression="SET pending_count = if_not_exists(pending_count, :zero) - :dec, daily_approved_count = if_not_exists(daily_approved_count, :zero) + :inc",
             ExpressionAttributeValues={":dec": 1, ":inc": 1, ":zero": 0},
         )
 
@@ -136,6 +136,6 @@ class RateLimiter:
         """Quote Denied: Pending -1"""
         self.table.update_item(
             Key={"quote_id": f"USER_{user_id}"},
-            UpdateExpression="SET pending_count = pending_count - :dec",
-            ExpressionAttributeValues={":dec": 1},
+            UpdateExpression="SET pending_count = if_not_exists(pending_count, :zero) - :dec",
+            ExpressionAttributeValues={":dec": 1, ":zero": 0},
         )

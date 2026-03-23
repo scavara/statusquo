@@ -1,4 +1,4 @@
-LOGIN_HTML = """
+ADMIN_LOGIN_HTML = """
 <!DOCTYPE html>
 <html>
 <head>
@@ -7,15 +7,77 @@ LOGIN_HTML = """
 </head>
 <body>
     <div style="text-align: center; margin-top: 50px; font-family: sans-serif;">
-        <h1>🔐 Admin Access</h1>
-        <p>Please log in with your Google Account to manage quotes.</p>
-        <a href="/admin/google" style="background: #4285F4; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">Sign in with Google</a>
+        <h1>🛡️ Admin Access</h1>
+        <p>Restricted area. Please log in with your Admin Google Account.</p>
+        <a href="/admin/login" style="background: #e74c3c; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">Admin Sign In</a>
     </div>
 </body>
 </html>
 """
 
-# Added link tag to head
+USER_LOGIN_HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Login - StatusQuo</title>
+    <link rel="icon" type="image/x-icon" href="/static/favicon.ico">
+</head>
+<body>
+    <div style="text-align: center; margin-top: 50px; font-family: sans-serif;">
+        <h1>👋 Welcome to StatusQuo</h1>
+        <p>Sign in to submit your favorite quotes to the database.</p>
+        <a href="/user/login" style="background: #4285F4; color: white; padding: 15px 30px; text-decoration: none; border-radius: 5px; font-weight: bold;">Sign in with Google</a>
+    </div>
+</body>
+</html>
+"""
+
+USER_DASHBOARD_TEMPLATE = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Dashboard - StatusQuo</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/milligram/1.4.1/milligram.min.css">
+    <style>
+        body { padding: 40px; background-color: #f4f5f6; }
+        .container { max-width: 600px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .flashes { list-style-type: none; padding: 0; }
+        .flashes li { background: #e0f2fe; color: #0369a1; padding: 10px; border-radius: 5px; margin-bottom: 15px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>👋 Welcome, {{ user.name }}</h1>
+        <p><a href="/user/logout">Logout</a></p>
+        <hr>
+        
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <ul class="flashes">
+            {% for message in messages %}
+              <li>{{ message }}</li>
+            {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        <h3>➕ Submit a New Quote</h3>
+        <form action="/dashboard/add" method="post">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+            <label>Quote Text</label>
+            <textarea name="text" required maxlength="80"></textarea>
+            <label>Author</label>
+            <input type="text" name="author" required maxlength="20">
+            <label>Emoji (e.g., :wave:)</label>
+            <input type="text" name="emoji" required placeholder=":smile:">
+            <button type="submit" class="button button-primary">Submit for Review</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+
 DASHBOARD_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -26,7 +88,6 @@ DASHBOARD_TEMPLATE = """
     <script src="https://cdn.jsdelivr.net/npm/emoji-js@3.6.0/lib/emoji.min.js"></script>
     
     <style>
-        /* ... existing styles ... */
         body { padding: 40px; background-color: #f4f5f6; }
         .container { max-width: 900px; margin: 0 auto; }
         
@@ -38,11 +99,10 @@ DASHBOARD_TEMPLATE = """
             border-radius: 8px; 
             box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
             display: flex; 
-            align-items: center; /* Vertically center content */
+            align-items: center; 
             gap: 20px;
         }
 
-        /* Fixed width for emoji to prevent overlap */
         .emoji-container { 
             font-size: 3em; 
             min-width: 80px; 
@@ -112,17 +172,13 @@ DASHBOARD_TEMPLATE = """
     </div>
 
     <script>
-        // ... existing script ...
-        // Initialize Emoji Converter
         const emojiConverter = new EmojiConvertor();
         emojiConverter.init_env();
-        emojiConverter.replace_mode = 'unified'; // Render as Unicode characters
+        emojiConverter.replace_mode = 'unified'; 
         emojiConverter.allow_native = true;
 
-        // Strip Slack Markdown chars (*bold*, _italic_, etc)
         function cleanSlackMarkdown(text) {
             if (!text) return "";
-            // Use double-backslashes to escape the characters for JavaScript
             text = text.replace(/\\*([^\\*]+)\\*/g, '$1');
             text = text.replace(/_([^_]+)_/g, '$1');
             text = text.replace(/~([^~]+)~/g, '$1');
@@ -131,14 +187,11 @@ DASHBOARD_TEMPLATE = """
         }
 
         document.addEventListener("DOMContentLoaded", function() {
-            // 1. Render Emojis
             document.querySelectorAll('.emoji-container').forEach(el => {
                 const rawEmoji = el.getAttribute('data-emoji');
-                // Convert :smile: -> Unicode 😃
                 el.innerHTML = emojiConverter.replace_colons(rawEmoji);
             });
 
-            // 2. Clean Text (Strip Markdown)
             document.querySelectorAll('.quote-text').forEach(el => {
                 const rawText = el.getAttribute('data-text');
                 el.innerText = cleanSlackMarkdown(rawText);

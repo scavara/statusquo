@@ -31,7 +31,12 @@ from lib.status_logic import perform_user_update
 from lib.quote_deduplicator import QuoteDeduplicator
 from lib.legal_pages import PRIVACY_HTML, SUPPORT_HTML, INDEX_HTML
 from lib.rate_limiter import RateLimiter
-from lib.admin_ui import DASHBOARD_TEMPLATE, LOGIN_HTML
+from lib.admin_ui import (
+    DASHBOARD_TEMPLATE,
+    ADMIN_LOGIN_HTML,
+    USER_LOGIN_HTML,
+    USER_DASHBOARD_TEMPLATE,
+)
 
 # --- LOGGING SETUP ---
 logging.basicConfig(level=logging.INFO)
@@ -47,6 +52,9 @@ GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
 FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "dev_secret_key")
 ADMIN_EMAILS = os.environ.get("ADMIN_EMAILS", "").split(",")
+
+# API ACCESS
+API_ACCESS_TOKEN = os.environ.get("API_ACCESS_TOKEN", "default-secret-token")
 
 # --- AWS DYNAMODB SETUP ---
 dynamodb = boto3.resource("dynamodb")
@@ -716,92 +724,146 @@ def handle_filter_command(ack, body, respond):
 
 
 # ==========================================
-# 4. ADMIN WEB UI ROUTES
+# 4. WEB UI & AUTH ROUTES (SEPARATED)
 # ==========================================
 
 
-def admin_required(f):
+def user_login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        user = session.get("user")
-
-        # Case 1: User is not logged in at all -> Show the Login Button
-        if not user:
-            return LOGIN_HTML
-
-        # Case 2: User IS logged in, but their email is not allowed -> Block them
-        if user.get("email") not in ADMIN_EMAILS:
-            logger.warning(f"Unauthorized access attempt by {user.get('email')}")
-            return "🚫 Access Denied", 403
-
-        # Case 3: Authorized -> Let them pass
+        if not session.get("web_user"):
+            return USER_LOGIN_HTML
         return f(*args, **kwargs)
 
     return decorated_function
 
 
-@flask_app.route("/install", methods=["GET"])
-def install_redirect():
-    """
-    Directly redirects to Slack's OAuth page, skipping the landing page.
-    """
-    # 1. Generate state
-    state = app.oauth_flow.settings.state_store.issue()
+def admin_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        admin = session.get("admin_user")
+        if not admin:
+            return ADMIN_LOGIN_HTML
+        if admin.get("email") not in ADMIN_EMAILS:
+            logger.warning(f"Unauthorized admin access attempt by {admin.get('email')}")
+            return "🚫 Admin Access Denied", 403
+        return f(*args, **kwargs)
 
-    # 2. Create a dummy BoltRequest for the builder
-    request_stub = BoltRequest(body="", headers={})
-
-    # 3. Build the URL
-    url = app.oauth_flow.build_authorize_url(state=state, request=request_stub)
-
-    # 4. SECURITY FIX: Manually set the state cookie.
-    response = redirect(url)
-    response.set_cookie(
-        key=app.oauth_flow.settings.state_cookie_name,
-        value=state,
-        max_age=600,
-        secure=True,  # Required for Heroku/HTTPS
-        httponly=True,  # Protects against XSS
-    )
-
-    return response
+    return decorated_function
 
 
+# --- ADMIN AUTH FLOW ---
+@flask_app.route("/admin/login")
+def admin_login():
+    redirect_uri = url_for("admin_auth", _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+
+@flask_app.route("/admin/auth")
+def admin_auth():
+    try:
+        token = oauth.google.authorize_access_token()
+        session["admin_user"] = token["userinfo"]
+    except Exception as e:
+        logger.error(f"Admin Auth Error: {e}")
+        return "Auth failed.", 400
+    return redirect("/admin")
+
+
+@flask_app.route("/admin/logout")
+def admin_logout():
+    session.pop("admin_user", None)
+    return redirect("/admin")
+
+
+# --- USER AUTH FLOW ---
+@flask_app.route("/user/login")
+def user_login():
+    redirect_uri = url_for("user_auth", _external=True)
+    return oauth.google.authorize_redirect(redirect_uri)
+
+
+@flask_app.route("/user/auth")
+def user_auth():
+    try:
+        token = oauth.google.authorize_access_token()
+        session["web_user"] = token["userinfo"]
+    except Exception as e:
+        logger.error(f"User Auth Error: {e}")
+        return "Auth failed.", 400
+    return redirect("/dashboard")
+
+
+@flask_app.route("/user/logout")
+def user_logout():
+    session.pop("web_user", None)
+    return redirect("/")
+
+
+# --- DASHBOARDS ---
 @flask_app.route("/admin")
 @admin_required
 def admin_dashboard():
-    user = session.get("user")
+    user = session.get("admin_user")
     try:
         response = pending_table.scan()
         quotes = response.get("Items", [])
     except Exception as e:
         logger.error(f"Admin Dashboard Error: {e}")
-        return f"<h1>⚠️ System Error</h1><p>Could not load pending quotes.</p><pre>{e}</pre>"
+        return f"<h1>⚠️ System Error</h1><pre>{e}</pre>"
 
     return render_template_string(DASHBOARD_TEMPLATE, quotes=quotes, user=user)
 
 
-@flask_app.route("/admin/google")
-def google_login():
-    redirect_uri = url_for("google_auth", _external=True)
-    return oauth.google.authorize_redirect(redirect_uri)
+@flask_app.route("/dashboard")
+@user_login_required
+def user_dashboard():
+    user = session.get("web_user")
+    return render_template_string(USER_DASHBOARD_TEMPLATE, user=user)
 
 
-@flask_app.route("/admin/auth")
-def google_auth():
+@flask_app.route("/dashboard/add", methods=["POST"])
+@user_login_required
+def dashboard_add_quote():
+    user = session.get("web_user")
+
+    text = clean_slack_markdown(request.form.get("text", "").strip())
+    author = request.form.get("author", "").strip()
+    emoji = request.form.get("emoji", "").strip()
+
+    if not (emoji.startswith(":") and emoji.endswith(":")):
+        flash("⚠️ Emoji must use colons e.g. :wave:")
+        return redirect("/dashboard")
+
+    is_duplicate, _ = deduplicator.check_exists(text)
+    if is_duplicate:
+        flash(f'🛑 We already have the quote: "{text}"')
+        return redirect("/dashboard")
+
+    quote_id = str(uuid.uuid4())
+    proposer_id = f"WebUI: {user.get('email')}"
+
     try:
-        token = oauth.google.authorize_access_token()
-        session["user"] = token["userinfo"]
+        pending_table.put_item(
+            Item={
+                "quote_id": quote_id,
+                "text": text,
+                "author": author,
+                "emoji": emoji,
+                "proposer": proposer_id,
+                "status": "PENDING",
+                "created_at": str(uuid.uuid1().time),
+            }
+        )
+
+        # ADD THIS LINE to correctly register the submission
+        limiter.increment_pending(proposer_id)
+
+        flash("✅ Quote submitted for review!")
     except Exception as e:
-        logger.error(f"Google Auth Error: {e}")
-        return "Auth failed. Please try again."
-    return redirect("/admin")
+        flash(f"❌ Error saving submission: {e}")
 
-
-@flask_app.route("/admin/logout")
-def logout():
-    session.pop("user", None)
-    return redirect("/admin")
+    return redirect("/dashboard")
 
 
 @flask_app.route("/admin/approve/<quote_id>", methods=["POST"])
@@ -845,8 +907,28 @@ def admin_deny(quote_id):
 
 
 # ==========================================
-# 5. PUBLIC ROUTES
+# 5. PUBLIC & API ROUTES
 # ==========================================
+
+
+@flask_app.route("/install", methods=["GET"])
+def install_redirect():
+    state = app.oauth_flow.settings.state_store.issue()
+    request_stub = BoltRequest(body="", headers={})
+    url = app.oauth_flow.build_authorize_url(state=state, request=request_stub)
+
+    response = redirect(url)
+    response.set_cookie(
+        key=app.oauth_flow.settings.state_cookie_name,
+        value=state,
+        max_age=600,
+        secure=True,
+        httponly=True,
+    )
+
+    return response
+
+
 @flask_app.route("/", methods=["GET"])
 def index():
     return INDEX_HTML
@@ -856,18 +938,19 @@ def index():
 def api_random_quote():
     import random
 
+    auth_header = request.headers.get("Authorization")
+    if not auth_header or auth_header != f"Bearer {API_ACCESS_TOKEN}":
+        return {"error": "Unauthorized"}, 401
+
     try:
-        # Scan the table (Perfect for your <10k item FunQuotes table)
         response = quotes_table.scan()
         items = response.get("Items", [])
 
         if not items:
             return {"error": "No quotes found"}, 404
 
-        # Pick a random quote
         random_quote = random.choice(items)
 
-        # Return it as cleanly formatted JSON for the Android TV app
         return {
             "quoteText": random_quote.get("text", "Relax and let go."),
             "author": random_quote.get("author", "Anonymous"),

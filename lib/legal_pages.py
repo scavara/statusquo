@@ -116,6 +116,7 @@ SUPPORT_HTML = """
 </body>
 </html>
 """
+
 INDEX_HTML = """
 <!DOCTYPE html>
 <html>
@@ -128,7 +129,8 @@ INDEX_HTML = """
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; text-align: center; padding: 50px; color: #333; }
         h1 { font-size: 2.5em; margin-bottom: 10px; }
         p { font-size: 1.2em; color: #666; }
-        .btn { display: inline-block; background-color: #4A154B; color: white; padding: 15px 30px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1em; margin: 20px 0; }
+        .btn { display: inline-block; background-color: #4A154B; color: white; padding: 15px 30px; border-radius: 8px; text-decoration: none; font-weight: bold; font-size: 1.1em; margin: 20px 10px; }
+        .btn-google { background-color: #4285F4; }
         .links { margin-top: 30px; font-size: 0.9em; }
         .links a { color: #666; margin: 0 10px; text-decoration: none; }
         .links a:hover { text-decoration: underline; }
@@ -138,7 +140,10 @@ INDEX_HTML = """
     <h1>🤖 StatusQuo</h1>
     <p>The witty, automated status updater for Slack.</p>
     
-    <a href="/install" class="btn">Add to Slack</a>
+    <div>
+        <a href="/install" class="btn">Add to Slack</a>
+        <a href="/dashboard" class="btn btn-google">Sign in to Submit Quotes</a>
+    </div>
     
     <div class="links">
         <a href="https://github.com/scavara/statusquo" target="_blank">GitHub Repo</a> | 
