@@ -102,59 +102,47 @@ DASHBOARD_TEMPLATE = """
             align-items: center; 
             gap: 20px;
         }
-
-        .emoji-container { 
-            font-size: 3em; 
-            min-width: 80px; 
-            text-align: center;
-            flex-shrink: 0;
-        }
-
+        .emoji-container { font-size: 3em; min-width: 80px; text-align: center; flex-shrink: 0; }
         .content { flex-grow: 1; }
-        
-        blockquote { 
-            border-left: 0.3rem solid #9b4dca; 
-            margin-left: 0; 
-            margin-right: 0;
-            background-color: #fafafa;
-            padding: 10px 15px;
-        }
-        
+        blockquote { border-left: 0.3rem solid #9b4dca; margin-left: 0; margin-right: 0; background-color: #fafafa; padding: 10px 15px; }
         .meta { color: #606c76; font-size: 0.9em; margin-top: 5px; }
-        
         .actions { margin-top: 15px; display: flex; gap: 10px; }
-        
         form { margin-bottom: 0; }
+        .flashes { list-style-type: none; padding: 0; }
+        .flashes li { background: #e0f2fe; color: #0369a1; padding: 10px; border-radius: 5px; margin-bottom: 15px; }
+        .api-token-code { background: #f4f5f6; padding: 5px 10px; border-radius: 4px; font-family: monospace; word-break: break-all; }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>🛡️ Moderation Queue</h1>
+        <h1>🛡️ StatusQuo Admin</h1>
         <p>Logged in as: <strong>{{ user.name }}</strong> | <a href="/admin/logout">Logout</a></p>
         <hr>
-        
+
+        {% with messages = get_flashed_messages() %}
+          {% if messages %}
+            <ul class="flashes">
+            {% for message in messages %}
+              <li>{{ message }}</li>
+            {% endfor %}
+            </ul>
+          {% endif %}
+        {% endwith %}
+
+        <h2>Moderation Queue</h2>
         {% if not quotes %}
-            <div class="card" style="justify-content: center; padding: 40px;">
-                <h3>✅ All caught up! No pending quotes.</h3>
+            <div class="card" style="justify-content: center; padding: 20px;">
+                <h4>✅ All caught up! No pending quotes.</h4>
             </div>
         {% else %}
             {% for q in quotes %}
             <div class="card">
-                <div class="emoji-container" data-emoji="{{ q.emoji }}">
-                    {{ q.emoji }}
-                </div>
-                
+                <div class="emoji-container" data-emoji="{{ q.emoji }}">{{ q.emoji }}</div>
                 <div class="content">
-                    <blockquote class="quote-text" data-text="{{ q.text }}">
-                        {{ q.text }}
-                    </blockquote>
-                    
+                    <blockquote class="quote-text" data-text="{{ q.text }}">{{ q.text }}</blockquote>
                     <div class="meta">
-                        — <strong>{{ q.author }}</strong> 
-                        <span style="color: #ccc;">|</span> 
-                        Submitted by: <code>{{ q.proposer }}</code>
+                        — <strong>{{ q.author }}</strong> <span style="color: #ccc;">|</span> Submitted by: <code>{{ q.proposer }}</code>
                     </div>
-                    
                     <div class="actions">
                         <form action="/admin/approve/{{ q.quote_id }}" method="post">
                             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
@@ -169,6 +157,52 @@ DASHBOARD_TEMPLATE = """
             </div>
             {% endfor %}
         {% endif %}
+
+        <hr style="margin: 40px 0;">
+
+        <h2>🔑 API Keys Management</h2>
+        <p>Manage access tokens for external applications accessing the Random Quote API.</p>
+        
+        <table style="background: white; border: 1px solid #e1e1e1; box-shadow: 0 2px 5px rgba(0,0,0,0.05);">
+            <thead>
+                <tr>
+                    <th>Description</th>
+                    <th>Token (Bearer)</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for key in api_tokens %}
+                <tr>
+                    <td>{{ key.description }}</td>
+                    <td><span class="api-token-code">{{ key.token }}</span></td>
+                    <td>
+                        <form action="/admin/api_keys/revoke/{{ key.token }}" method="post" onsubmit="return confirm('Are you sure you want to revoke this key?');">
+                            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                            <button type="submit" class="button button-clear" style="color: red; padding: 0;">Revoke</button>
+                        </form>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="3" style="text-align: center; color: #999;">No API keys generated yet.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <div style="margin-top: 20px; background: white; padding: 20px; border-radius: 8px; border: 1px solid #e1e1e1;">
+            <h4>Generate New Token</h4>
+            <form action="/admin/api_keys/generate" method="post" style="display: flex; gap: 10px; align-items: flex-end;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"/>
+                <div style="flex-grow: 1; margin-bottom: 0;">
+                    <label>App / Client Description</label>
+                    <input type="text" name="description" placeholder="e.g. Android TV App" required style="margin-bottom: 0;">
+                </div>
+                <button type="submit" class="button button-primary" style="margin-bottom: 0;">Generate</button>
+            </form>
+        </div>
+
     </div>
 
     <script>

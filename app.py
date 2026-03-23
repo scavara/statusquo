@@ -4,6 +4,7 @@ import uuid
 import re
 import boto3
 import logging
+import secrets
 from functools import wraps
 from flask import (
     Flask,
@@ -53,13 +54,11 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET")
 FLASK_SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "dev_secret_key")
 ADMIN_EMAILS = os.environ.get("ADMIN_EMAILS", "").split(",")
 
-# API ACCESS
-API_ACCESS_TOKEN = os.environ.get("API_ACCESS_TOKEN", "default-secret-token")
-
 # --- AWS DYNAMODB SETUP ---
 dynamodb = boto3.resource("dynamodb")
 quotes_table = dynamodb.Table("FunQuotes")
 pending_table = dynamodb.Table("FunQuotePending")
+api_tokens_table = dynamodb.Table("ApiTokens")  # New API Tokens table
 deduplicator = QuoteDeduplicator(quotes_table)
 limiter = RateLimiter(quotes_table)
 
@@ -806,13 +805,20 @@ def user_logout():
 def admin_dashboard():
     user = session.get("admin_user")
     try:
+        # Get pending quotes
         response = pending_table.scan()
         quotes = response.get("Items", [])
+
+        # Get API keys
+        token_response = api_tokens_table.scan()
+        api_tokens = token_response.get("Items", [])
     except Exception as e:
         logger.error(f"Admin Dashboard Error: {e}")
         return f"<h1>⚠️ System Error</h1><pre>{e}</pre>"
 
-    return render_template_string(DASHBOARD_TEMPLATE, quotes=quotes, user=user)
+    return render_template_string(
+        DASHBOARD_TEMPLATE, quotes=quotes, api_tokens=api_tokens, user=user
+    )
 
 
 @flask_app.route("/dashboard")
@@ -842,7 +848,6 @@ def dashboard_add_quote():
 
     quote_id = str(uuid.uuid4())
     proposer_id = f"WebUI: {user.get('email')}"
-
     try:
         pending_table.put_item(
             Item={
@@ -855,10 +860,7 @@ def dashboard_add_quote():
                 "created_at": str(uuid.uuid1().time),
             }
         )
-
-        # ADD THIS LINE to correctly register the submission
         limiter.increment_pending(proposer_id)
-
         flash("✅ Quote submitted for review!")
     except Exception as e:
         flash(f"❌ Error saving submission: {e}")
@@ -906,13 +908,51 @@ def admin_deny(quote_id):
     return redirect("/admin")
 
 
+@flask_app.route("/admin/api_keys/generate", methods=["POST"])
+@admin_required
+def admin_generate_api_key():
+    description = request.form.get("description", "Unnamed App").strip()
+    new_token = secrets.token_urlsafe(32)
+
+    try:
+        api_tokens_table.put_item(
+            Item={
+                "token": new_token,
+                "description": description,
+                "created_at": str(uuid.uuid1().time),
+            }
+        )
+        flash("✅ New API Key generated successfully!")
+    except Exception as e:
+        logger.error(f"Failed to generate token: {e}")
+        flash(f"❌ Error generating token: {e}")
+
+    return redirect("/admin")
+
+
+@flask_app.route("/admin/api_keys/revoke/<token>", methods=["POST"])
+@admin_required
+def admin_revoke_api_key(token):
+    try:
+        api_tokens_table.delete_item(Key={"token": token})
+        flash("🗑️ API Key revoked.")
+    except Exception as e:
+        logger.error(f"Failed to revoke token: {e}")
+        flash("❌ Error revoking token.")
+
+    return redirect("/admin")
+
+
 # ==========================================
-# 5. PUBLIC & API ROUTES
+# 5. PUBLIC ROUTES
 # ==========================================
 
 
 @flask_app.route("/install", methods=["GET"])
 def install_redirect():
+    """
+    Directly redirects to Slack's OAuth page, skipping the landing page.
+    """
     state = app.oauth_flow.settings.state_store.issue()
     request_stub = BoltRequest(body="", headers={})
     url = app.oauth_flow.build_authorize_url(state=state, request=request_stub)
@@ -939,10 +979,18 @@ def api_random_quote():
     import random
 
     auth_header = request.headers.get("Authorization")
-    if not auth_header or auth_header != f"Bearer {API_ACCESS_TOKEN}":
-        return {"error": "Unauthorized"}, 401
+    if not auth_header or not auth_header.startswith("Bearer "):
+        return {"error": "Unauthorized: Missing or invalid Bearer token"}, 401
+
+    token = auth_header.split(" ")[1]
 
     try:
+        # Validate token against DynamoDB
+        token_resp = api_tokens_table.get_item(Key={"token": token})
+        if not token_resp.get("Item"):
+            return {"error": "Unauthorized: Invalid API Key"}, 401
+
+        # Fetch Quotes
         response = quotes_table.scan()
         items = response.get("Items", [])
 
